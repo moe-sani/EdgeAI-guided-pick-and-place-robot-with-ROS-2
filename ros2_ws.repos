@@ -1,0 +1,23 @@
+# Upstream sources for this workspace, pinned to the commits verified working.
+# Restore with:  cd ~/ros2_ws && vcs import src < ros2_ws.repos
+repositories:
+  irb120_CranfieldRobotics:
+    type: git
+    url: https://github.com/IFRA-Cranfield/irb120_CranfieldRobotics.git
+    version: c2d0d6a66681fe94f70a6755c22da83fd995a2b2  # branch: jazzy
+  ros2_SimRealRobotControl:
+    type: git
+    url: https://github.com/IFRA-Cranfield/ros2_SimRealRobotControl.git
+    version: b8fa70d43614257c7f8e465b759cf92ff690103d  # branch: jazzy
+  IFRA_ObjectPose:
+    type: git
+    url: https://github.com/IFRA-Cranfield/IFRA_ObjectPose.git
+    version: 2300467b7e66071cf7395e8fa56cab4258ae2e3c  # branch: jazzy
+  ros2_RobotiqGripper:
+    type: git
+    url: https://github.com/IFRA-Cranfield/ros2_RobotiqGripper.git
+    version: b8fcf92a8054c91df72cab5a889b232370936ee9  # branch: jazzy
+  ABBDriver/abb_ros2_msgs:
+    type: git
+    url: https://github.com/gbartyzel/abb_ros2_msgs.git
+    version: 071bb1fc2148a7cd850a1ff550c5987e67da6bdd  # branch: rolling
