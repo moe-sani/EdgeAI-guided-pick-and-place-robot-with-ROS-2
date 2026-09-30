@@ -25,9 +25,9 @@ def grasp_quaternion(cube_yaw):
 
 
 class RobotSkills:
-    def __init__(self, node, scene, destinations, get_pose, log):
+    def __init__(self, node, scene, destinations, get_pose, all_poses, log):
         self.node, self.scene, self.dests = node, scene, destinations
-        self.get_pose, self.log = get_pose, log
+        self.get_pose, self.all_poses, self.log = get_pose, all_poses, log
         self.m = scene['motion']
         self.robmove_client = ActionClient(node, Robmove, '/Robmove')
         self.move_client = ActionClient(node, Move, '/Move')
@@ -76,13 +76,27 @@ class RobotSkills:
         self._move(g, 'MoveJ home')
 
     # ---------- skills ----------
-    def pick_and_place(self, obj, dest_name):
-        m, d = self.m, self.dests[dest_name]
+    def holding(self):
+        """Name of the held object, inferred from the world: only a gripped cube is well above the table.
+
+        Stateless on purpose, so it survives commander restarts, one-shot runs and scene resets.
+        """
+        lift_z = self.scene['table_z'] + cube_half_size() + 0.05
+        time.sleep(0.3)  # let fresh poses arrive after the robot stops
+        for name, p in self.all_poses().items():
+            if p.z > lift_z:
+                return name
+        return None
+
+    def pick(self, obj):
+        """Grasp ``obj``, lift it to the travel height and keep holding it."""
+        held = self.holding()
+        if held:
+            raise SkillError(f'Already holding {held}; place it first.')
+        m = self.m
         pose = self.get_pose(obj)
         if pose is None:
             raise SkillError(f'No pose received for {obj}; is it spawned?')
-        if self._inside(pose, d):
-            return f'{obj} is already in {dest_name}.'
 
         q = grasp_quaternion(_yaw(pose))
         grasp_z = pose.z + m['grasp_z_offset']
@@ -94,13 +108,20 @@ class RobotSkills:
         time.sleep(0.5)
         self.robmove('LIN', pose.x, pose.y, m['approach_z'], q, m['fine_speed'])
 
-        lifted = self.get_pose(obj)
-        if lifted is None or lifted.z < pose.z + 0.05:
+        if self.holding() != obj:
             self.gripper(0.0)
             raise SkillError(f'Grasp failed: {obj} did not lift with the gripper.')
+        return f'Holding {obj}.'
 
+    def place(self, dest_name):
+        """Put the held object into ``dest_name``."""
+        obj = self.holding()
+        if obj is None:
+            raise SkillError('Not holding anything to place.')
+        m, d = self.m, self.dests[dest_name]
+        q = grasp_quaternion(_yaw(self.get_pose(obj)))  # a held cube keeps the gripper's yaw
         release_z = d['release_z_center'] + m['grasp_z_offset']
-        self.log(f'  place into {dest_name} at ({d["x"]:.3f}, {d["y"]:.3f})')
+        self.log(f'  place {obj} into {dest_name} at ({d["x"]:.3f}, {d["y"]:.3f})')
         self.robmove('PTP', d['x'], d['y'], m['approach_z'], q, m['travel_speed'])
         self.robmove('LIN', d['x'], d['y'], release_z, q, m['fine_speed'])
         self.gripper(0.0)
@@ -112,6 +133,14 @@ class RobotSkills:
             where = f'({final.x:.3f}, {final.y:.3f}, {final.z:.3f})' if final else 'unknown'
             raise SkillError(f'{obj} did not end up inside {dest_name}; it is at {where}.')
         return f'{obj} is now in {dest_name} at ({final.x:.3f}, {final.y:.3f}).'
+
+    def pick_and_place(self, obj, dest_name):
+        if self.holding() != obj:
+            pose = self.get_pose(obj)
+            if pose is not None and self._inside(pose, self.dests[dest_name]):
+                return f'{obj} is already in {dest_name}.'
+            self.pick(obj)
+        return self.place(dest_name)
 
     def _inside(self, p, d):
         # Resting inside the footprint, and not still hanging in the gripper above it.

@@ -24,6 +24,10 @@ skip the harder multi-cube case and commit this stage.
   - A cube rotated 30° was picked with a yaw-aligned grasp; its final yaw was 29.8°, which confirms the rotation sign.
   - "go home", "pick up the yellow cube" (correctly refused), `--dry-run`, the interactive prompt
     (tested through a pty), `/llm_command` → `/llm_response` topic mode (dry run), and `spawn_scene --reset`.
+  - **Pick and hold** (added after the user found that "Pick up the red cube" went on to put it in the
+    Box): "Pick up the red cube" held it at z 1.007, then a *separate* one-shot run of "put it in the
+    blue tray" placed it 3 mm from the tray centre. A 15-case planner matrix (with and without a held
+    cube) was all correct.
 - **Commit rule (from user):** commit only as the configured git identity (Moe Sani). Never use an
   AI or agent name as author or committer, and never add `Co-authored-by` trailers.
 - `~/ros2_ws` is a git repo (the user pushes it to their GitHub). Upstream clones in `src/*` are
@@ -93,13 +97,20 @@ skip the harder multi-cube case and commit this stage.
   - `llm_commander/llm.py`: the prompt, the HTTP call (stdlib `urllib`; the `openai` package isn't
     installed), JSON extraction, and strict validation. Names are matched case- and
     punctuation-insensitively.
-  - `llm_commander/robot.py`: `/Robmove` and `/Move` action clients, plus `pick_and_place` and `home`.
+  - `llm_commander/robot.py`: `/Robmove` and `/Move` action clients, plus the skills `pick` (grasp,
+    lift and hold), `place`, `pick_and_place` and `home`. `holding()` is **stateless**: any cube with
+    z > table + 0.015 + 0.05 is in the gripper. That's why it survives restarts, one-shot runs and resets.
   - `llm_commander/commander.py`: the node. It discovers `objectpose_msgs/ObjectPose` topics every
     1 s, has a worker queue, an interactive prompt (when stdin is a TTY), a single-command CLI mode,
     `/llm_command` in, `/llm_response` out, and `--dry-run`.
-- **LLM output contract:** `{"reply": str, "plan": [{"action": "pick_and_place", "object", "destination"} | {"action": "home"}]}`.
+- **LLM output contract:** `{"reply": str, "plan": [...]}`. Steps are `{"action": "pick", "object"}`,
+  `{"action": "place", "destination"}`, `{"action": "pick_and_place", "object", "destination"}` or
+  `{"action": "home"}`. The prompt includes "currently holding: X". `plan()` steps through the plan
+  tracking what's held, and rejects placing with nothing held or picking a second cube.
   The LLM never outputs coordinates. The prompt lists only the objects whose pose is currently being
   published. Temperature is 0.
+  - Prompt rules that were needed for Qwen3-4B: never invent a destination (otherwise "pick up X" went
+    to the Box), and don't turn an unresolvable "it" into "home".
 - **Pick sequence:** open gripper → PTP above the cube (z 1.0) → LIN down to `cube_z - 0.008` →
   MoveG 55 → LIN up. The grasp is confirmed by checking that the cube's z rose by more than 5 cm.
   Then PTP above the destination centre → LIN down to the release height → open → LIN up. Finally the

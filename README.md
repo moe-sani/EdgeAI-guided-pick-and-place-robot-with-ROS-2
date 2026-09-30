@@ -86,8 +86,8 @@ into robot motions. It works like this:
    OpenAI-compatible server.
 3. The LLM replies with a small JSON plan. The node checks it against the known object and
    destination names; the LLM never supplies coordinates.
-4. Each step runs as a pick-and-place through `/Robmove` and `/Move`, using the cube's live pose.
-   The gripper rotates to match the cube's yaw.
+4. Each step (pick, place, pick-and-place or home) runs through `/Robmove` and `/Move`, using the
+   cube's live pose. The gripper rotates to match the cube's yaw.
 5. The node checks the result from the cube's pose: the cube must lift with the gripper, and must
    end up inside the destination. If a step fails, the remaining steps are skipped and the failure is
    reported.
@@ -114,16 +114,26 @@ Example session:
 
 ```text
 > Pick up the red cube and place it in the blue tray.
-[llm 4.3s] I will pick up the red cube and place it in the blue tray.
-[step 1/1] pick RedCube -> BlueTray
+[llm 5.3s] I will pick up the red cube and place it in the blue tray.
+[step 1/2] pick RedCube (hold)
+  done: Holding RedCube.
+[step 2/2] place held object -> BlueTray
   done: RedCube is now in BlueTray at (0.682, 0.398).
 [done] All steps completed.
 ```
+
+"Pick up X" on its own **only picks it up**: the robot lifts the cube and holds it in the air. A later
+command such as "put it in the green tray" places it. The robot holds one cube at a time.
+
+The commander works out what's held from the scene (a cube well above the table must be in the
+gripper), so this also works across separate one-shot runs or after restarting the commander.
 
 Other ways to use it:
 
 ```bash
 ros2 run llm_commander spawn_scene --reset                          # put all cubes back at their start positions
+                                                                    # (works while the commander runs; run it between
+                                                                    # commands, not while the robot is moving)
 ros2 run llm_commander commander "put the green cube in the box"    # run one command and exit
 ros2 run llm_commander commander --dry-run                          # plan only, robot doesn't move
 ros2 run llm_commander commander --model unsloth/Qwen3.5-2B-GGUF:Q4_0   # try another model
@@ -133,7 +143,9 @@ ros2 topic echo /llm_response
 ```
 
 The default model is `unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_0`. Planning took about 2–9 s per command
-in testing. Supported actions are `pick_and_place` and `home`. Requests
+in testing. Supported actions are `pick`, `place`, `pick_and_place` and `home`. The LLM is told never
+to invent a destination you didn't ask for. Plans that are impossible (placing while holding nothing,
+or picking while already holding a cube) are rejected before the robot moves. Requests
 for things that don't exist (e.g. "the yellow cube") or aren't robot tasks are politely refused.
 
 **Current limitation:** every cube is dropped at the destination's centre, so putting several cubes

@@ -42,7 +42,7 @@ class Commander(Node):
         self.create_subscription(String, '/llm_command', lambda m: self.commands.put(m.data), 10,
                                  callback_group=self.cb)
         self.create_timer(1.0, self._discover_objects, callback_group=self.cb)
-        self.skills = RobotSkills(self, scene, self.dests, self.get_pose, self.say)
+        self.skills = RobotSkills(self, scene, self.dests, self.get_pose, self.all_poses, self.say)
 
     # ---------- object pose tracking ----------
     def _discover_objects(self):
@@ -64,10 +64,13 @@ class Commander(Node):
             return self.poses.get(name)
 
     def live_objects(self):
+        return sorted(self.all_poses())
+
+    def all_poses(self):
         now = time.monotonic()
         with self.lock:
-            return sorted(n for n, t in self.pose_stamp.items()
-                          if now - t < POSE_MAX_AGE_S and n not in self.dests)
+            return {n: p for n, p in self.poses.items()
+                    if now - self.pose_stamp[n] < POSE_MAX_AGE_S and n not in self.dests}
 
     # ---------- command handling ----------
     def say(self, text):
@@ -77,9 +80,10 @@ class Commander(Node):
     def run_command(self, command):
         objects = self.live_objects()
         self.say(f'[command] {command}')
+        holding = self.skills.holding()
         t0 = time.time()
         try:
-            reply, plan, _ = self.planner.plan(command, objects, list(self.dests))
+            reply, plan, _ = self.planner.plan(command, objects, list(self.dests), holding)
         except PlanError as e:
             self.say(f'[error] {e}')
             return
@@ -87,17 +91,25 @@ class Commander(Node):
         if not plan:
             return
         for i, step in enumerate(plan, 1):
-            desc = ('home' if step['action'] == 'home'
-                    else f"pick {step['object']} -> {step['destination']}")
+            a = step['action']
+            desc = {'home': 'home',
+                    'pick': f"pick {step.get('object')} (hold)",
+                    'place': f"place held object -> {step.get('destination')}",
+                    'pick_and_place': f"pick {step.get('object')} -> {step.get('destination')}"}[a]
             self.say(f'[step {i}/{len(plan)}] {desc}')
             if self.dry_run:
                 continue
             try:
-                if step['action'] == 'home':
+                if a == 'home':
                     self.skills.home()
-                    self.say('  done: robot is at home.')
+                    result = 'robot is at home.'
+                elif a == 'pick':
+                    result = self.skills.pick(step['object'])
+                elif a == 'place':
+                    result = self.skills.place(step['destination'])
                 else:
-                    self.say('  done: ' + self.skills.pick_and_place(step['object'], step['destination']))
+                    result = self.skills.pick_and_place(step['object'], step['destination'])
+                self.say('  done: ' + result)
             except SkillError as e:
                 self.say(f'[failed] {e} Stopping the remaining steps.')
                 return
