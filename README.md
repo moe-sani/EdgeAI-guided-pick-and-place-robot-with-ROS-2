@@ -189,9 +189,15 @@ ros2 run llm_commander safety_check --repeat 3            # just ask the VLM, no
 [safety] RISK (VLM answered 'yes', 0.7s). Command refused; the robot will not move.
 ```
 
-The last frame the VLM judged is saved to `/tmp/llm_commander_safety.jpg`. To watch the camera live, run
-`ros2 run rqt_image_view rqt_image_view /safety_camera/image` while the commander (with `--safety`)
-is running.
+To see what the camera sees:
+- **Gazebo window (live, nothing extra needed):** open the **⋮** menu at the top right, add
+  **Image Display**, then choose `/safety_camera/image` in its topic dropdown.
+- **rqt (live):** `ros2 run rqt_image_view rqt_image_view /safety_camera/image`. This needs the image
+  bridge, which `commander --safety` starts. Otherwise run
+  `ros2 run ros_gz_bridge parameter_bridge "/safety_camera/image@sensor_msgs/msg/Image[gz.msgs.Image"`.
+- **What the VLM actually judged:** the last checked frame is saved to `/tmp/llm_commander_safety.jpg`.
+  Over SSH, open it in VS Code with `code /tmp/llm_commander_safety.jpg`; it's rewritten after every
+  check.
 
 Notes:
 - The check happens once, when a command starts. The robot isn't monitored while it moves.
