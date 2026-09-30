@@ -24,6 +24,8 @@ skip the harder multi-cube case and commit this stage.
   - A cube rotated 30° was picked with a yaw-aligned grasp; its final yaw was 29.8°, which confirms the rotation sign.
   - "go home", "pick up the yellow cube" (correctly refused), `--dry-run`, the interactive prompt
     (tested through a pty), `/llm_command` → `/llm_response` topic mode (dry run), and `spawn_scene --reset`.
+- **Commit rule (from user):** commit only as the configured git identity (Moe Sani). Never use an
+  AI or agent name as author or committer, and never add `Co-authored-by` trailers.
 - `~/ros2_ws` is a git repo (the user pushes it to their GitHub). Upstream clones in `src/*` are
   git-ignored and pinned in `ros2_ws.repos`. `src/llm_commander` is ours and committed.
   No upstream code has been modified.
