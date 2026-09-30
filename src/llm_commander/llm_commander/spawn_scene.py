@@ -1,6 +1,6 @@
-"""Spawn the trays and cubes defined in scene.yaml into the running Gazebo world.
+"""Spawn the trays, cubes and safety camera defined in scene.yaml into the running Gazebo world.
 
-Usage:  ros2 run llm_commander spawn_scene [--config path/to/scene.yaml] [--only trays|cubes] [--reset]
+Usage:  ros2 run llm_commander spawn_scene [--config path/to/scene.yaml] [--only trays|cubes|camera] [--reset]
 
 --reset moves cubes that already exist back to their start positions (and spawns anything missing).
 """
@@ -15,7 +15,7 @@ from ament_index_python.packages import get_package_share_directory
 from rclpy.node import Node
 from ros_gz_interfaces.srv import SpawnEntity
 
-from llm_commander.scene import cube_half_size, load_scene, tray_sdf
+from llm_commander.scene import camera_sdf, cube_half_size, load_scene, look_at_quaternion, tray_sdf
 
 
 class Spawner(Node):
@@ -25,7 +25,7 @@ class Spawner(Node):
         while not self.cli.wait_for_service(timeout_sec=1.0):
             self.get_logger().info(f'Waiting for /world/{world}/create (is the simulation running?) ...')
 
-    def spawn(self, name, sdf, x, y, z):
+    def spawn(self, name, sdf, x, y, z, q=(0.0, 0.0, 0.0, 1.0)):
         req = SpawnEntity.Request()
         req.entity_factory.name = name
         req.entity_factory.allow_renaming = False
@@ -34,6 +34,8 @@ class Spawner(Node):
         req.entity_factory.pose.position.x = float(x)
         req.entity_factory.pose.position.y = float(y)
         req.entity_factory.pose.position.z = float(z)
+        o = req.entity_factory.pose.orientation
+        o.x, o.y, o.z, o.w = (float(v) for v in q)
         fut = self.cli.call_async(req)
         rclpy.spin_until_future_complete(self, fut, timeout_sec=10.0)
         res = fut.result()
@@ -60,6 +62,13 @@ def gz_models():
     return {line.strip()[2:] for line in out.stdout.splitlines() if line.strip().startswith('- ')}
 
 
+def gz_remove(world, name):
+    out = subprocess.run([gz_bin(), 'service', '-s', f'/world/{world}/remove', '--reqtype', 'gz.msgs.Entity',
+                          '--reptype', 'gz.msgs.Boolean', '--timeout', '3000',
+                          '--req', f'name: "{name}" type: MODEL'], capture_output=True, text=True)
+    return 'data: true' in out.stdout
+
+
 def gz_set_pose(world, name, x, y, z):
     """Teleport a model via the Gazebo CLI (set_pose isn't bridged to ROS). Returns True on success."""
     req = f'name: "{name}" position {{x: {x} y: {y} z: {z}}} orientation {{w: 1}}'
@@ -72,7 +81,7 @@ def gz_set_pose(world, name, x, y, z):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default=None)
-    parser.add_argument('--only', choices=['trays', 'cubes'], default=None)
+    parser.add_argument('--only', choices=['trays', 'cubes', 'camera'], default=None)
     parser.add_argument('--reset', action='store_true', help='move existing cubes back to their start poses')
     args, _ = parser.parse_known_args()
 
@@ -100,6 +109,13 @@ def main():
                         log(f"{c['name']} already present" + ('' if args.reset else ' (use --reset to move it back)'))
                     continue
                 node.spawn(c['name'], cube_sdf(c['name']), c['x'], c['y'], z)
+        if args.only in (None, 'camera') and 'camera' in scene:
+            cam = scene['camera']
+            if cam['name'] in existing:
+                log(f"{cam['name']} already present")
+            else:
+                node.spawn(cam['name'], camera_sdf(cam), *cam['position'],
+                           q=look_at_quaternion(cam['position'], cam['look_at']))
     finally:
         node.destroy_node()
         rclpy.shutdown()

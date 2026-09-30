@@ -44,6 +44,23 @@ def _resolve(name, candidates):
     return lookup.get(_norm(name))
 
 
+def _close_brackets(text):
+    """Append missing closing brackets/braces (small models sometimes drop the final '}')."""
+    stack, in_str, esc = [], False, False
+    for ch in text:
+        if in_str:
+            esc = (ch == '\\') and not esc
+            if ch == '"' and not esc:
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch in '{[':
+            stack.append('}' if ch == '{' else ']')
+        elif ch in '}]' and stack:
+            stack.pop()
+    return text + ''.join(reversed(stack))
+
+
 def _extract_json(text):
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.S).strip()
     text = re.sub(r'^```(?:json)?\s*|\s*```$', '', text).strip()
@@ -51,8 +68,13 @@ def _extract_json(text):
         return json.loads(text)
     except json.JSONDecodeError:
         start, end = text.find('{'), text.rfind('}')
-        if start != -1 and end > start:
-            return json.loads(text[start:end + 1])
+        if start == -1:
+            raise
+        for candidate in (text[start:end + 1], _close_brackets(text[start:])):
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
         raise
 
 
@@ -60,20 +82,20 @@ class LLMPlanner:
     def __init__(self, url, model, timeout_s=120):
         self.url, self.model, self.timeout_s = url, model, timeout_s
 
-    def _chat(self, system, user):
-        body = {
-            'model': self.model,
-            'temperature': 0,
-            'max_tokens': 400,
-            'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}],
-        }
+    def chat(self, messages, max_tokens=400):
+        body = {'model': self.model, 'temperature': 0, 'max_tokens': max_tokens, 'messages': messages}
         req = urllib.request.Request(self.url, json.dumps(body).encode(), {'Content-Type': 'application/json'})
         try:
             with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
                 data = json.load(resp)
+        except urllib.error.HTTPError as e:
+            raise PlanError(f'LLM server error {e.code}: {e.read()[:300]!r}')
         except urllib.error.URLError as e:
             raise PlanError(f'Cannot reach the LLM server at {self.url} ({e}). Is `geniex serve` running?')
         return data['choices'][0]['message']['content']
+
+    def _chat(self, system, user):
+        return self.chat([{'role': 'system', 'content': system}, {'role': 'user', 'content': user}])
 
     def plan(self, command, objects, destinations, holding=None):
         """Return (reply, plan, raw_text). ``plan`` only contains validated actions."""

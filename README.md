@@ -10,7 +10,9 @@ It was verified working on 2026-09-29: the red cube moved from (0.60, 0.70) to
 (0.53, 0.13), and the program's place target is (0.525, 0.125).
 
 A **local LLM** can now drive it with natural language: *"Pick up the red cube and place it in the
-blue tray."* See [LLM control](#llm-control-local-llm-via-geniex).
+blue tray."* See [LLM control](#llm-control-local-llm-via-geniex). Optionally, a **safety camera** checked
+by a local vision-language model refuses commands when a person is in the cell. See
+[Safety camera](#safety-camera-vlm).
 
 ## Repository layout
 
@@ -92,8 +94,9 @@ into robot motions. It works like this:
    end up inside the destination. If a step fails, the remaining steps are skipped and the failure is
    reported.
 
-Scene: RedCube, GreenCube and BlueCube on the table, a **BlueTray** and a **GreenTray** (spawned), and
-the grey **Box** that's part of the robot cell. The positions and motion settings are in
+Scene: RedCube, GreenCube and BlueCube on the table, a **BlueTray** and a **GreenTray** (spawned), the
+grey **Box** that's part of the robot cell, and a **SafetyCamera** in the top corner of the enclosure
+(used only with `--safety`, see below). The positions and motion settings are in
 `src/llm_commander/config/scene.yaml`.
 
 ```bash
@@ -104,10 +107,11 @@ geniex serve
 source ~/ros2_ws/env.sh
 ros2 launch ros2srrc_launch moveit2.launch.py package:=irb120cranfield config:=irb120cranfield_2
 
-# Terminal 3: spawn the trays and cubes, then talk to the robot
+# Terminal 3: spawn the trays, cubes and camera, then talk to the robot
 source ~/ros2_ws/env.sh
 ros2 run llm_commander spawn_scene            # safe to re-run
 ros2 run llm_commander commander              # interactive prompt; type 'exit' to quit
+                                              # add --safety to enable the camera check (see below)
 ```
 
 Example session:
@@ -136,20 +140,66 @@ ros2 run llm_commander spawn_scene --reset                          # put all cu
                                                                     # commands, not while the robot is moving)
 ros2 run llm_commander commander "put the green cube in the box"    # run one command and exit
 ros2 run llm_commander commander --dry-run                          # plan only, robot doesn't move
-ros2 run llm_commander commander --model unsloth/Qwen3.5-2B-GGUF:Q4_0   # try another model
+ros2 run llm_commander commander --model unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_0   # try another model
 # From any ROS node or terminal (while the commander is running):
 ros2 topic pub --once /llm_command std_msgs/msg/String "{data: 'go home'}"
 ros2 topic echo /llm_response
 ```
 
-The default model is `unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_0`. Planning took about 2–9 s per command
-in testing. Supported actions are `pick`, `place`, `pick_and_place` and `home`. The LLM is told never
+The default model is `ai-hub-models/Qwen3-VL-4B-Instruct` (GenieX, NPU). It's a vision-language model
+that does both the planning and the camera check. Planning took about 1–5 s per command in testing.
+Leave off the `:W4A16` suffix that `/v1/models` lists; GenieX rejects it with an HTTP 500. The earlier
+text-only default, `unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_0`, also works with `--model`.
+Supported actions are `pick`, `place`, `pick_and_place` and `home`. The LLM is told never
 to invent a destination you didn't ask for. Plans that are impossible (placing while holding nothing,
 or picking while already holding a cube) are rejected before the robot moves. Requests
 for things that don't exist (e.g. "the yellow cube") or aren't robot tasks are politely refused.
 
-**Current limitation:** every cube is dropped at the destination's centre, so putting several cubes
-into the same tray will stack or knock them together.
+**Current limitations:**
+- Every cube is dropped at the destination's centre, so putting several cubes into the same tray will
+  stack or knock them together.
+- In the simulation, a held cube slowly slides out of the gripper (it drops within roughly 15–60 s).
+  "Pick up X" followed by "put it in…" should be done promptly.
+
+## Safety camera (VLM)
+
+With `--safety`, every command starts with a camera check before the LLM plans and before the robot
+moves. The latest SafetyCamera frame goes to the same VLM with the question:
+
+> *Is there a person, or anything else risky, on the way of the robot? reply with yes or no only*
+
+On `yes`, the command is refused and the robot doesn't move. Anything other than a clear `no` (no
+camera image, a stale image, server error, unexpected answer) also counts as risky. The check takes
+about 0.7 s. The commander starts the gz → ROS image bridge for `/safety_camera/image` itself.
+
+To try it, put a "child" (Gazebo Fuel's *Rescue Randy Sitting* at 0.6× size) on the table in front of
+the robot:
+
+```bash
+ros2 run llm_commander commander --safety                 # terminal 3
+ros2 run llm_commander spawn_person                       # terminal 4: child appears
+ros2 run llm_commander spawn_person --remove              # ...and goes away again
+ros2 run llm_commander spawn_person --kind adult --x 0.6 --y 0.3 --yaw 90   # other size/place
+ros2 run llm_commander safety_check --repeat 3            # just ask the VLM, no robot involved
+```
+
+```text
+> put the red cube in the box
+[command] put the red cube in the box
+[safety] RISK (VLM answered 'yes', 0.7s). Command refused; the robot will not move.
+```
+
+The last frame the VLM judged is saved to `/tmp/llm_commander_safety.jpg`. To watch the camera live, run
+`ros2 run rqt_image_view rqt_image_view /safety_camera/image` while the commander (with `--safety`)
+is running.
+
+Notes:
+- The check happens once, when a command starts. The robot isn't monitored while it moves.
+- The test person is visual-only (no collision), so the robot would pass straight through it if not
+  stopped. It exists purely to test perception.
+- With the question worded only as *"anything risky…"*, Qwen3-VL-4B answered `no` even with a person
+  in view. Naming "a person" explicitly fixed that, with no false alarms on the normal scene (including
+  while the arm moves near the camera).
 
 ## Known gotchas
 

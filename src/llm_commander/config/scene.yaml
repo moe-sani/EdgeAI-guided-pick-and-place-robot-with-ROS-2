@@ -32,5 +32,28 @@ motion:
 
 llm:
   url: http://127.0.0.1:18181/v1/chat/completions
-  model: unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_0
+  # One vision-language model for both planning and the camera safety check.
+  # Note: GenieX rejects the ':W4A16' suffix that /v1/models lists for this model.
+  model: ai-hub-models/Qwen3-VL-4B-Instruct
   timeout_s: 120
+
+# Static camera inside the enclosure (top front corner) looking down at the whole work table.
+camera:
+  name: SafetyCamera
+  topic: /safety_camera/image
+  position: [0.70, 1.02, 1.65]
+  look_at: [0.42, 0.45, 0.87]
+  hfov: 1.4
+  width: 800
+  height: 600
+  rate: 5
+
+# Where `spawn_person` puts the test person by default: sitting on the table in front of the robot,
+# facing the safety camera.
+person_spot: {x: 0.62, y: 0.62, yaw_deg: -165}
+
+# Camera + VLM safety check, run once before each command (enabled with `commander --safety`).
+safety:
+  max_image_age_s: 2.0      # refuse to judge from a stale frame
+  image_width: 640          # frames are downscaled before being sent to the VLM
+  save_frame: /tmp/llm_commander_safety.jpg   # last frame the VLM judged (for debugging)

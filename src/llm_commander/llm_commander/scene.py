@@ -1,4 +1,5 @@
-"""Scene configuration loading and tray SDF generation."""
+"""Scene configuration loading and SDF generation (trays, safety camera, test person)."""
+import math
 import os
 
 import yaml
@@ -37,6 +38,53 @@ def destinations(scene):
             x=d['x'], y=d['y'], half_x=d['half_x'], half_y=d['half_y'], kind='fixed',
             release_z_center=d['place_z'] - scene['motion']['grasp_z_offset'])
     return dests
+
+
+def look_at_quaternion(pos, target):
+    """(x, y, z, w) orienting a Gazebo camera (which looks along +X) from ``pos`` towards ``target``."""
+    dx, dy, dz = (t - p for p, t in zip(pos, target))
+    yaw = math.atan2(dy, dx)
+    pitch = math.atan2(-dz, math.hypot(dx, dy))  # positive pitch tilts +X downwards
+    cy, sy = math.cos(yaw / 2), math.sin(yaw / 2)
+    cp, sp = math.cos(pitch / 2), math.sin(pitch / 2)
+    return (-sp * sy, sp * cy, cp * sy, cp * cy)
+
+
+def yaw_quaternion(yaw):
+    return (0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2))
+
+
+def camera_sdf(cam):
+    """Static camera model; the world already loads the gz Sensors system, so it renders once spawned."""
+    return (f'<?xml version="1.0"?><sdf version="1.8"><model name="{cam["name"]}"><static>true</static>'
+            f'<link name="link">'
+            f'<visual name="body"><geometry><box><size>0.04 0.08 0.04</size></box></geometry>'
+            f'<material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material></visual>'
+            f'<sensor name="{cam["name"]}_sensor" type="camera"><always_on>1</always_on>'
+            f'<update_rate>{cam["rate"]}</update_rate><topic>{cam["topic"]}</topic>'
+            f'<camera><horizontal_fov>{cam["hfov"]}</horizontal_fov>'
+            f'<image><width>{cam["width"]}</width><height>{cam["height"]}</height></image>'
+            f'<clip><near>0.05</near><far>30</far></clip></camera></sensor>'
+            f'</link></model></sdf>')
+
+
+PERSON_MESH = 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Rescue Randy Sitting/8/files/meshes/rescue_randy.dae'
+# Mesh bounds at scale 1 (m): x -0.473..0.274, y -0.714..0.304 (legs point to -y), z 0.618..1.348.
+PERSON_CENTER = (-0.100, -0.205)
+PERSON_BOTTOM_Z = 0.618
+
+
+def person_sdf(name, scale):
+    """Visual-only sitting person (Gazebo Fuel 'Rescue Randy Sitting', ~0.73 m tall sitting at scale 1).
+
+    The mesh is re-centred so the model origin is under the middle of the body, on the surface it sits on.
+    No collision on purpose: it is a perception test object and must not shove cubes or fight the arm.
+    """
+    ox, oy, oz = (-PERSON_CENTER[0] * scale, -PERSON_CENTER[1] * scale, -PERSON_BOTTOM_Z * scale)
+    return (f'<?xml version="1.0"?><sdf version="1.8"><model name="{name}"><static>true</static>'
+            f'<link name="link"><visual name="visual"><pose>{ox:.4f} {oy:.4f} {oz:.4f} 0 0 0</pose>'
+            f'<geometry><mesh><uri>{PERSON_MESH}</uri><scale>{scale} {scale} {scale}</scale></mesh></geometry>'
+            f'</visual></link></model></sdf>')
 
 
 def tray_sdf(name, rgb, size):

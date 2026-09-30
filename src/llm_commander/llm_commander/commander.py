@@ -3,7 +3,10 @@
 Commands come from the interactive prompt (when run in a terminal) or the /llm_command topic
 (std_msgs/String). Progress and results are printed and published on /llm_response.
 
-Usage:  ros2 run llm_commander commander [--config scene.yaml] [--model NAME] [--url URL] [--dry-run]
+Usage:  ros2 run llm_commander commander [--safety] [--config scene.yaml] [--model NAME] [--url URL] [--dry-run]
+
+--safety: before the robot starts a command, the safety camera image is checked by the VLM; if it sees anything
+risky, the command is refused and the robot does not move.
 """
 import argparse
 import os
@@ -21,6 +24,7 @@ from std_msgs.msg import String
 
 from llm_commander.llm import LLMPlanner, PlanError
 from llm_commander.robot import RobotSkills, SkillError
+from llm_commander.safety import SafetyMonitor, start_bridge, stop_bridge
 from llm_commander.scene import destinations, load_scene
 
 POSE_TYPE = 'objectpose_msgs/msg/ObjectPose'
@@ -28,7 +32,7 @@ POSE_MAX_AGE_S = 2.0
 
 
 class Commander(Node):
-    def __init__(self, scene, planner, dry_run=False):
+    def __init__(self, scene, planner, dry_run=False, safety=False):
         super().__init__('llm_commander')
         self.scene, self.planner, self.dry_run = scene, planner, dry_run
         self.dests = destinations(scene)
@@ -43,6 +47,7 @@ class Commander(Node):
                                  callback_group=self.cb)
         self.create_timer(1.0, self._discover_objects, callback_group=self.cb)
         self.skills = RobotSkills(self, scene, self.dests, self.get_pose, self.all_poses, self.say)
+        self.safety = SafetyMonitor(self, scene, planner, callback_group=self.cb) if safety else None
 
     # ---------- object pose tracking ----------
     def _discover_objects(self):
@@ -77,9 +82,26 @@ class Commander(Node):
         print(text, flush=True)
         self.pub.publish(String(data=text))
 
+    def run_step(self, step):
+        a = step['action']
+        if a == 'home':
+            self.skills.home()
+            return 'robot is at home.'
+        if a == 'pick':
+            return self.skills.pick(step['object'])
+        if a == 'place':
+            return self.skills.place(step['destination'])
+        return self.skills.pick_and_place(step['object'], step['destination'])
+
     def run_command(self, command):
         objects = self.live_objects()
         self.say(f'[command] {command}')
+        if self.safety:
+            v = self.safety.check()
+            if v.risky:
+                self.say(f'[safety] RISK ({v.reason}, {v.seconds:.1f}s). Command refused; the robot will not move.')
+                return
+            self.say(f'[safety] clear ({v.seconds:.1f}s)')
         holding = self.skills.holding()
         t0 = time.time()
         try:
@@ -100,16 +122,7 @@ class Commander(Node):
             if self.dry_run:
                 continue
             try:
-                if a == 'home':
-                    self.skills.home()
-                    result = 'robot is at home.'
-                elif a == 'pick':
-                    result = self.skills.pick(step['object'])
-                elif a == 'place':
-                    result = self.skills.place(step['destination'])
-                else:
-                    result = self.skills.pick_and_place(step['object'], step['destination'])
-                self.say('  done: ' + result)
+                self.say('  done: ' + self.run_step(step))
             except SkillError as e:
                 self.say(f'[failed] {e} Stopping the remaining steps.')
                 return
@@ -156,6 +169,8 @@ def main():
     parser.add_argument('--model', default=None, help='override llm.model from the config')
     parser.add_argument('--url', default=None, help='override llm.url from the config')
     parser.add_argument('--dry-run', action='store_true', help='plan only, do not move the robot')
+    parser.add_argument('--safety', action='store_true',
+                        help='check the safety camera with the VLM before running each command')
     parser.add_argument('command', nargs='*', help='run a single command and exit')
     args, _ = parser.parse_known_args(rclpy.utilities.remove_ros_args(sys.argv)[1:])
 
@@ -164,13 +179,20 @@ def main():
     planner = LLMPlanner(args.url or llm_cfg['url'], args.model or llm_cfg['model'], llm_cfg.get('timeout_s', 120))
 
     rclpy.init()
-    node = Commander(scene, planner, dry_run=args.dry_run)
+    node = Commander(scene, planner, dry_run=args.dry_run, safety=args.safety)
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     spin_thread = threading.Thread(target=executor.spin, daemon=True)
     spin_thread.start()
+    bridge = None
+    if args.safety:
+        bridge = start_bridge(node, scene['camera']['topic'])
+        if not node.safety.wait_for_frame():
+            node.say(f"[safety] WARNING: no image on {scene['camera']['topic']} yet. Run "
+                     f"`ros2 run llm_commander spawn_scene` to add the SafetyCamera; until then commands are refused.")
     threading.Thread(target=node.worker, daemon=True).start()
-    node.say(f'[llm_commander] model={planner.model}{" (dry run)" if args.dry_run else ""}')
+    node.say(f'[llm_commander] model={planner.model}'
+             f'{" | safety camera ON" if args.safety else ""}{" (dry run)" if args.dry_run else ""}')
 
     try:
         if args.command:
@@ -187,6 +209,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        stop_bridge(bridge)
         # Stop spinning before tearing down, otherwise rclpy can segfault on exit.
         executor.shutdown(timeout_sec=2.0)
         spin_thread.join(timeout=2.0)

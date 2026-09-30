@@ -23,6 +23,8 @@ setup(
         'console_scripts': [
             'commander = llm_commander.commander:main',
             'spawn_scene = llm_commander.spawn_scene:main',
+            'spawn_person = llm_commander.spawn_person:main',
+            'safety_check = llm_commander.safety:main',
         ],
     },
 )

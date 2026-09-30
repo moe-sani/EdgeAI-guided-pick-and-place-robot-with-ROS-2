@@ -13,6 +13,15 @@ whose docs target Humble, but the machine runs Jazzy.
 The user chose to add coloured trays to the scene so that command works literally. They then asked to
 skip the harder multi-cube case and commit this stage.
 
+**Phase 3 (2026-09-30):** the user wants a camera in the scene, with a local VLM asked whether anything
+risky is in the robot's way, used to abort the command. The test hazard is a simulated child. The
+existing demo must keep working unchanged (so the feature is opt-in via `--safety`). The user asked
+to use `ai-hub-models/Qwen3-VL-4B-Instruct` **for everything**, for planning too. The user then
+**explicitly simplified the scope**:
+- one check at the start of each command, with no mid-motion monitoring or watchdog;
+- the short yes/no question;
+- *Rescue Randy Sitting* as the person model, because Casual female was too large for the scene.
+
 ## Status: WORKING (2026-09-30)
 
 - **Phase 1:** the upstream `CubePP_irb120_sim` program (10 steps) runs in Gazebo Harmonic. Verified
@@ -28,6 +37,13 @@ skip the harder multi-cube case and commit this stage.
     Box): "Pick up the red cube" held it at z 1.007, then a *separate* one-shot run of "put it in the
     blue tray" placed it 3 mm from the tray centre. A 15-case planner matrix (with and without a held
     cube) was all correct.
+- **Phase 3: safety camera works** (agent-verified in the sim, with `--safety`):
+  - Empty cell: `clear` (0.7 s), and the full pick-and-place completed. There were no false alarms,
+    including frames with the arm close to the camera (checked during an earlier watchdog prototype).
+  - With the child spawned: `RISK`, the command was refused and the cube didn't move. After
+    `spawn_person --remove`, the same command ran normally. Without `--safety`, no camera is needed.
+  - The planning matrix with Qwen3-VL-4B was **15/15** after two fixes: JSON repair for a missing
+    closing brace, and restoring the prompt (see the gotchas).
 - **Commit rule (from user):** commit only as the configured git identity (Moe Sani). Never use an
   AI or agent name as author or committer, and never add `Co-authored-by` trailers.
 - `~/ros2_ws` is a git repo (the user pushes it to their GitHub). Upstream clones in `src/*` are
@@ -102,7 +118,20 @@ skip the harder multi-cube case and commit this stage.
     z > table + 0.015 + 0.05 is in the gripper. That's why it survives restarts, one-shot runs and resets.
   - `llm_commander/commander.py`: the node. It discovers `objectpose_msgs/ObjectPose` topics every
     1 s, has a worker queue, an interactive prompt (when stdin is a TTY), a single-command CLI mode,
-    `/llm_command` in, `/llm_response` out, and `--dry-run`.
+    `/llm_command` in, `/llm_response` out, `--dry-run`, and `--safety` (a camera check at command start,
+    *before* planning, so a refusal isn't preceded by the LLM's past-tense reply).
+  - `llm_commander/safety.py`: `SafetyMonitor` subscribes to `/safety_camera/image`, downsizes the
+    latest frame to 640 px JPEG, and asks the VLM a yes/no question (`max_tokens=5`). It is
+    **fail-safe**: no frame, a frame older than 2 s, a server error or a non-yes/no answer all count as
+    risky. `start_bridge()` runs `ros_gz_bridge parameter_bridge` for the image topic unless something
+    already publishes it; it's killed at exit. The `safety_check` CLI is for tuning.
+  - `llm_commander/spawn_person.py`: a visual-only *Rescue Randy Sitting* (Fuel mesh URL, auto-cached),
+    child = 0.6×, adult = 1.0×. Its default spot and heading are `person_spot` in scene.yaml. Re-running
+    it moves the person; `--remove` removes it.
+  - SafetyCamera: a static model with a gz camera sensor, spawned by `spawn_scene` at (0.70, 1.02, 1.65),
+    looking at (0.42, 0.45, 0.87), 800×600 at 5 Hz, hfov 1.4. The upstream world already loads the gz
+    Sensors system, so no launch or world change was needed. Cameras outside the glass enclosure, or at
+    z ≥ 1.9, see mostly glass or the roof block.
 - **LLM output contract:** `{"reply": str, "plan": [...]}`. Steps are `{"action": "pick", "object"}`,
   `{"action": "place", "destination"}`, `{"action": "pick_and_place", "object", "destination"}` or
   `{"action": "home"}`. The prompt includes "currently holding: X". `plan()` steps through the plan
@@ -121,10 +150,12 @@ skip the harder multi-cube case and commit this stage.
   are at BlueTray (0.68, 0.40) and GreenTray (0.35, 0.20). Cubes start at Red (0.60, 0.70),
   Green (0.48, 0.80) and Blue (0.36, 0.86). All of these were reachable.
 - **GenieX:** `geniex serve` listens on `127.0.0.1:18181` (OpenAI-compatible; `/v1/models` lists the
-  models). The default model is `unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_0`. It got 6/6 of the planning
-  test prompts right, at 2–9 s each.
-  - The NPU build `qualcomm/Qwen3-4B-Instruct-2507:W4A16` returns HTTP 500 immediately through the
-    server. Not investigated.
+  models). The default model is now **`ai-hub-models/Qwen3-VL-4B-Instruct`** (NPU; the alias
+  `qualcomm/Qwen3-VL-4B-Instruct` also works). Planning takes 1–5 s, and an image yes/no answer about 0.7 s.
+  - **Never append `:W4A16`**. `/v1/models` lists it, but the server answers HTTP 500 "quantization
+    'W4A16' not found". That was also the cause of the earlier NPU-model 500s.
+  - The previous default, `unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_0`, still works via `--model`.
+  - A server started from an agent shell dies when that shell is interrupted; start it detached.
   - Port 11434 on this machine is a different service (probably Ollama) and is unrelated.
 
 ## Gotchas found in phase 2
@@ -142,6 +173,24 @@ skip the harder multi-cube case and commit this stage.
   ran concurrently with the build.
 - Gazebo CLI: `/opt/ros/jazzy/opt/gz_tools_vendor/bin/gz` (not on PATH by default).
 
+## Gotchas found in phase 3
+
+- **Small-model prompts are brittle.** Changing only the `reply` wording ("...what you will do")
+  broke 3 of the 15 planning cases. Always re-run `python3 src/llm_commander/tools/plan_matrix.py`
+  (it should report 15/15) after touching `SYSTEM_PROMPT` or the model. The matrix
+  covers 10 cases with nothing held and 5 holding RedCube: two "it" references, pick-only, grab,
+  pick+place, a two-step command, "all cubes", yellow cube, weather, and home.
+- **Safety question wording:** "Is there anything risky on the way of the robot? reply with yes or no
+  only" (the user's wording) → `no` even with a person in the frame, with or without a system prompt.
+  Adding "a person, or" → correct on both frames. A long JSON prompt listing the "safe" objects made the
+  model echo the list and answer "safe" with a person in view.
+- Qwen3-VL sometimes drops the final `}` of the JSON; `_close_brackets()` in llm.py repairs it.
+- **A held cube slips out of the gripper** in Gazebo within about 15–60 s (MoveG 55; 65 and 75
+  measured the same). The user accepted this; it's why mid-motion stops (which leave a cube held)
+  were dropped along with the watchdog.
+- The Rescue Randy mesh is in 0.1 mm units, with its origin off-centre and the legs along −y; `person_sdf()`
+  re-centres it. The mesh URL contains spaces, and Gazebo resolves that fine for Fuel URLs.
+
 ## Ideas for next steps (not started)
 
 - **Several cubes into one destination** (the user deferred this). Right now every cube drops at the
@@ -149,7 +198,9 @@ skip the harder multi-cube case and commit this stage.
   tray), pick the first slot with no other object within about 0.05 m, and put the cube back if the
   destination is full. A draft was written and then reverted untested at the user's request.
 - Conversation memory ("now put it back"): pass recent turns and the last plan to the LLM.
-- Get the GenieX NPU model working for faster planning.
+- Safety: monitor during motion too. The upstream `/Robmove` and `/Move` servers accept cancel, which
+  calls MoveIt `stop()`. A watchdog prototype (cancelling the active goal on `yes`) was written and then
+  removed at the user's request. The held-cube slip would need fixing first.
 - Add a one-shot launch that starts the sim, spawns the scene and starts the commander.
 - Try `irb120cranfield_3` with object pose estimation (needs a venv with opencv and ultralytics;
   see the upstream `instructions/Installation.md`).
