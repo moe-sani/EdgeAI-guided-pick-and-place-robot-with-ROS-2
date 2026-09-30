@@ -14,7 +14,7 @@ It was verified working on 2026-09-29: the red cube moved from (0.60, 0.70) to
 | Path | Purpose |
 |---|---|
 | `ros2_ws.repos` | Upstream source repos pinned to the verified commits |
-| `env.sh` | Environment setup. **Always** `source` it before using the workspace |
+| `env.sh` | Environment setup. **Always** `source` it before using the workspace. From SSH terminals it also points GUIs at the PC's logged-in desktop (`DISPLAY=:0`) |
 | `AGENT_HANDOFF.md` | Detailed notes and gotchas for continuing the work (human or AI agent) |
 | `src/` | Upstream clones (git-ignored; restored via `vcs import`) |
 
@@ -33,7 +33,7 @@ source /opt/ros/jazzy/setup.bash
 rosdep install -r --from-paths src --ignore-src --rosdistro jazzy -y   # gz-math7 warning is harmless
 
 # 3. Upstream launch files hardcode ~/dev_ws, so point it at this workspace
-ln -s ~/ros2_ws ~/dev_ws
+ln -sfn ~/ros2_ws ~/dev_ws   # -n: safe to re-run (plain `ln -s` would nest a link inside)
 
 # 4. Build. /usr/bin must come first in PATH so Homebrew's python3 isn't picked up
 export PATH=/usr/bin:$PATH
@@ -74,6 +74,8 @@ For single moves, you can send `/Move` or `/Robmove` actions directly. See the u
 
 ## Known gotchas
 
+- **Running over SSH**: `env.sh` sends the GUIs to the PC's own monitor (`DISPLAY=:0`). This only
+  works while a user is logged in on that desktop. To view it remotely, use VNC or GNOME Remote Desktop.
 - **Homebrew Python**: `~/.bashrc` runs `brew shellenv`, which puts Homebrew's `python3` first.
   That breaks colcon (`No module named 'catkin_pkg'`) and Python ROS nodes. `env.sh` fixes it.
 - **Hardcoded `~/dev_ws`**: without the symlink, the gripper controllers silently don't load.

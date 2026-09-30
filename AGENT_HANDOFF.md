@@ -11,6 +11,8 @@ whose docs target Humble, but the machine runs Jazzy.
 ## Status: WORKING (2026-09-29)
 
 - The full cube pick-and-place (`CubePP_irb120_sim`, 10 steps) runs successfully in Gazebo Harmonic.
+- **Verified end-to-end twice**: by the agent on 2026-09-29, and by the user from an SSH terminal on
+  2026-09-30. The robot picked the red cube and placed it in the box.
 - The cube pose was checked before and after the run, so the physical move is confirmed, not just a "SUCCESS" message.
 - `~/ros2_ws` is a git repo holding only our own files. Upstream clones in `src/` are git-ignored
   and pinned in `ros2_ws.repos`. No upstream code has been modified.
@@ -18,9 +20,11 @@ whose docs target Humble, but the machine runs Jazzy.
 ## Machine facts
 
 - Ubuntu 24.04, ROS 2 Jazzy at `/opt/ros/jazzy`, 8 cores, 34 GB RAM, passwordless sudo.
-- GNOME **Wayland** desktop. To open GUIs from a non-desktop shell (e.g. an agent's shell):
-  `export DISPLAY=:0 XAUTHORITY=$(ls /run/user/1000/.mutter-Xwaylandauth.*) XDG_RUNTIME_DIR=/run/user/1000`
-  (`env.sh` also sets `QT_QPA_PLATFORM=xcb`).
+- GNOME **Wayland** desktop. `env.sh` sets `DISPLAY=:0`, `XAUTHORITY` (a glob on
+  `/run/user/1000/.mutter-Xwaylandauth.*`, because the name changes every login) and `XDG_RUNTIME_DIR`
+  when `DISPLAY` is empty, so GUIs launched from SSH or VS Code terminals appear on the PC's monitor.
+  This needs someone logged in on the desktop. `env.sh` also sets `QT_QPA_PLATFORM=xcb`.
+  The user works mostly over SSH (VS Code remote) and confirmed on 2026-09-30 that this works.
 - `~/.bashrc` runs `brew shellenv` several times (lines ~120-123) and sources ROS on line ~129.
   Homebrew's python3 then shadows `/usr/bin/python3`. We deliberately did **not** edit `.bashrc`.
   `env.sh` works around it instead.
