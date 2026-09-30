@@ -2,4 +2,8 @@ build/
 install/
 log/
 # Upstream sources are restored from ros2_ws.repos, not committed here.
-src/
+# Our own packages live alongside them and are committed.
+src/*
+!src/llm_commander/
+__pycache__/
+*.pyc

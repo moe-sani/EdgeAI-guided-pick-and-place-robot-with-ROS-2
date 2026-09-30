@@ -1,0 +1,36 @@
+# Scene + motion settings shared by `spawn_scene` and `commander`.
+# All coordinates are in the Gazebo/MoveIt "world" frame, in metres.
+# Robot base is at (0.275, 0.525, 0.8605); the table top is at z ~= 0.866.
+
+world: ros2srrc_GzWorld
+table_z: 0.866
+
+# Pickable objects (SDFs/meshes come from the irb120cranfield package).
+cubes:
+  - {name: RedCube,   x: 0.60, y: 0.70}
+  - {name: GreenCube, x: 0.48, y: 0.80}
+  - {name: BlueCube,  x: 0.36, y: 0.86}
+
+# Coloured trays spawned by spawn_scene (static, generated SDF).
+tray_size: {inner: 0.14, wall_height: 0.02, wall_thickness: 0.005, floor_thickness: 0.004}
+trays:
+  - {name: BlueTray,  rgb: [0.10, 0.30, 0.90], x: 0.68, y: 0.40}
+  - {name: GreenTray, rgb: [0.10, 0.70, 0.20], x: 0.35, y: 0.20}
+
+# Destinations that are part of the robot cell itself (not spawned).
+fixed_destinations:
+  - {name: Box, x: 0.526, y: 0.126, half_x: 0.05, half_y: 0.077, place_z: 0.925}  # grey 'ergobox'
+
+motion:
+  approach_z: 1.00          # end-effector height for travelling between spots
+  grasp_z_offset: -0.008    # end-effector z relative to the cube centre when grasping
+  tray_release_clearance: 0.02  # drop height above the tray floor
+  gripper_close: 55.0       # MoveG value that grips a 3 cm cube
+  travel_speed: 1.0
+  fine_speed: 0.2           # speed for the final descent/ascent (LIN)
+  home_joints_deg: [0.0, 0.0, 0.0, 0.0, 90.0, 0.0]
+
+llm:
+  url: http://127.0.0.1:18181/v1/chat/completions
+  model: unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_0
+  timeout_s: 120
