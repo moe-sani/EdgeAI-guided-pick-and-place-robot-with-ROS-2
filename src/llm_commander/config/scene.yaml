@@ -48,9 +48,9 @@ camera:
   height: 600
   rate: 5
 
-# Where `spawn_person` puts the test person by default: sitting on the table in front of the robot,
-# facing the safety camera.
-person_spot: {x: 0.62, y: 0.62, yaw_deg: -165}
+# Where `spawn_person` sits the test person (torso position): on the table in the robot's path between
+# the red cube and the blue tray (the only gap there that clears both), facing the safety camera.
+person_spot: {x: 0.66, y: 0.58, yaw_deg: -165}
 
 # Camera + VLM safety check, run once before each command (enabled with `commander --safety`).
 safety:

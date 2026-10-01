@@ -50,8 +50,7 @@ def _actions(node):
     return {
         'reset': (True, node.reset_scene),
         'home': (True, home),
-        'spawn_child': (False, lambda: node.run_tool('spawn_person', '--kind', 'child')),
-        'spawn_adult': (False, lambda: node.run_tool('spawn_person', '--kind', 'adult')),
+        'spawn_person': (False, lambda: node.run_tool('spawn_person')),
         'remove_person': (False, lambda: node.run_tool('spawn_person', '--remove')),
         'safety_on': (False, safety(True)),
         'safety_off': (False, safety(False)),

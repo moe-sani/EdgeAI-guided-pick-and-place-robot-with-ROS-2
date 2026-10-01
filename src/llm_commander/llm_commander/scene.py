@@ -69,20 +69,32 @@ def camera_sdf(cam):
 
 
 PERSON_MESH = 'https://fuel.gazebosim.org/1.0/OpenRobotics/models/Rescue Randy Sitting/8/files/meshes/rescue_randy.dae'
-# Mesh bounds at scale 1 (m): x -0.473..0.274, y -0.714..0.304 (legs point to -y), z 0.618..1.348.
-PERSON_CENTER = (-0.100, -0.205)
+# Mesh at scale 1 (m): x -0.473..0.274, y -0.714..0.304 (legs point to -y), z 0.618..1.348 (sitting).
+# The model origin is put under the torso (where the person sits), so the collision body is centred on it.
+PERSON_TORSO = (-0.025, 0.115)
 PERSON_BOTTOM_Z = 0.618
+PERSON_SCALE = 0.6  # ~0.44 m tall sitting: a child-sized person that fits on the work table
 
 
-def person_sdf(name, scale):
-    """Visual-only sitting person (Gazebo Fuel 'Rescue Randy Sitting', ~0.73 m tall sitting at scale 1).
+def person_sdf(name, scale=PERSON_SCALE, mass=5.0, body=(0.14, 0.14, 0.40)):
+    """Sitting person (Gazebo Fuel 'Rescue Randy Sitting') that the robot can bump and knock over.
 
-    The mesh is re-centred so the model origin is under the middle of the body, on the surface it sits on.
-    No collision on purpose: it is a perception test object and must not shove cubes or fight the arm.
+    Physics uses one box around the torso and head (a full mesh collision on a moving body is slow and
+    unstable); the legs are visual only, so the person can sit over cubes without shoving them.
     """
-    ox, oy, oz = (-PERSON_CENTER[0] * scale, -PERSON_CENTER[1] * scale, -PERSON_BOTTOM_Z * scale)
-    return (f'<?xml version="1.0"?><sdf version="1.8"><model name="{name}"><static>true</static>'
-            f'<link name="link"><visual name="visual"><pose>{ox:.4f} {oy:.4f} {oz:.4f} 0 0 0</pose>'
+    ox, oy, oz = (-PERSON_TORSO[0] * scale, -PERSON_TORSO[1] * scale, -PERSON_BOTTOM_Z * scale)
+    bx, by, bz = body
+    ixx = mass / 12 * (by ** 2 + bz ** 2)
+    iyy = mass / 12 * (bx ** 2 + bz ** 2)
+    izz = mass / 12 * (bx ** 2 + by ** 2)
+    return (f'<?xml version="1.0"?><sdf version="1.8"><model name="{name}"><static>false</static>'
+            f'<link name="link">'
+            f'<inertial><pose>0 0 {bz / 2:.3f} 0 0 0</pose><mass>{mass}</mass>'
+            f'<inertia><ixx>{ixx:.5f}</ixx><iyy>{iyy:.5f}</iyy><izz>{izz:.5f}</izz>'
+            f'<ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia></inertial>'
+            f'<collision name="body"><pose>0 0 {bz / 2:.3f} 0 0 0</pose>'
+            f'<geometry><box><size>{bx} {by} {bz}</size></box></geometry></collision>'
+            f'<visual name="visual"><pose>{ox:.4f} {oy:.4f} {oz:.4f} 0 0 0</pose>'
             f'<geometry><mesh><uri>{PERSON_MESH}</uri><scale>{scale} {scale} {scale}</scale></mesh></geometry>'
             f'</visual></link></model></sdf>')
 

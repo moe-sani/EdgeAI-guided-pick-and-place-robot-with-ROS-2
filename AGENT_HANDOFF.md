@@ -51,8 +51,8 @@ them, whereas X windows land on the PC's monitor. The user opens it at **http://
   - The planning matrix with Qwen3-VL-4B was **15/15** after two fixes: JSON repair for a missing
     closing brace, and restoring the prompt (see the gotchas).
 - **Phase 4: web UI works** (agent-verified by clicking through the real page in a browser):
-  - Safety switch on, then **Spawn child**, then the example command: a red RISK line and badge,
-    the judged frame showing the child, and no motion.
+  - Safety switch on, then **Spawn person** (then called "Spawn child"), then the example command: a
+    red RISK line and badge, the judged frame showing the person, and no motion.
   - **Remove person**, then **Reset scene** (gripper open, home, cubes reset), then the same command:
     CLEAR, and RedCube ended up in BlueTray.
   - Restarting the commander while a page is open: the page detects it (`boot` id) and reloads the log.
@@ -137,9 +137,13 @@ them, whereas X windows land on the PC's monitor. The user opens it at **http://
     **fail-safe**: no frame, a frame older than 2 s, a server error or a non-yes/no answer all count as
     risky. `start_bridge()` runs `ros_gz_bridge parameter_bridge` for the image topic unless something
     already publishes it; it's killed at exit. The `safety_check` CLI is for tuning.
-  - `llm_commander/spawn_person.py`: a visual-only *Rescue Randy Sitting* (Fuel mesh URL, auto-cached),
-    child = 0.6×, adult = 1.0×. Its default spot and heading are `person_spot` in scene.yaml. Re-running
-    it moves the person; `--remove` removes it.
+  - `llm_commander/spawn_person.py`: one child-sized (0.6×) *Rescue Randy Sitting* (Fuel mesh URL,
+    auto-cached). The user asked for just "person", so the child/adult options were removed. It's a
+    **dynamic body**: 5 kg, with one 0.14 × 0.14 × 0.40 m collision box around the torso and head. The
+    legs are visual-only, so the person can sit over cubes. `person_spot` (0.66, 0.58), yaw −165°,
+    is the **torso** position: the only gap on the red-cube→blue-tray path that clears the tray
+    (y ≤ 0.475) and the red cube (y ≥ 0.685). The mesh origin is re-centred on the torso. Re-running
+    re-spawns it; `--remove` removes it.
   - `llm_commander/webui.py` and `web/index.html`: the `--web` UI, stdlib `ThreadingHTTPServer`
     in a daemon thread inside the commander, plus one vanilla-JS page that polls `/api/state` every
     0.7 s and reloads `/api/camera.jpg` (JPEG encoded on request from the latest ROS frame).
@@ -215,6 +219,11 @@ them, whereas X windows land on the PC's monitor. The user opens it at **http://
   were dropped along with the watchdog.
 - The Rescue Randy mesh is in 0.1 mm units, with its origin off-centre and the legs along −y; `person_sdf()`
   re-centres it. The mesh URL contains spaces, and Gazebo resolves that fine for Fuel URLs.
+- **Person collision (phase 4, verified):** with safety off, the demo command hits the person while the
+  arm moves the cube to the tray. The person moved 8 cm and turned 35°, the cube was knocked out, and
+  the command failed. With safety on, it was refused. The person settles at z 0.859 (7 mm below
+  `table_z`) and is stable there. The recorded gripper path for the demo (from home at
+  (0.577, 0.525, 1.228)) passes (0.61–0.62, 0.57–0.65) at z 1.06–1.17, then moves to the tray at z 1.0.
 
 ## Gotchas found in phase 4
 

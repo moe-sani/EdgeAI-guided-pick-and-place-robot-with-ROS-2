@@ -172,14 +172,14 @@ On `yes`, the command is refused and the robot doesn't move. Anything other than
 camera image, a stale image, server error, unexpected answer) also counts as risky. The check takes
 about 0.7 s. The commander starts the gz → ROS image bridge for `/safety_camera/image` itself.
 
-To try it, put a "child" (Gazebo Fuel's *Rescue Randy Sitting* at 0.6× size) on the table in front of
-the robot:
+To try it, sit a person (Gazebo Fuel's *Rescue Randy Sitting*, child-sized) on the table in the robot's
+path, between the red cube and the blue tray:
 
 ```bash
 ros2 run llm_commander commander --safety                 # terminal 3
-ros2 run llm_commander spawn_person                       # terminal 4: child appears
+ros2 run llm_commander spawn_person                       # terminal 4: person appears (re-run to put them back)
 ros2 run llm_commander spawn_person --remove              # ...and goes away again
-ros2 run llm_commander spawn_person --kind adult --x 0.6 --y 0.3 --yaw 90   # other size/place
+ros2 run llm_commander spawn_person --x 0.6 --y 0.3 --yaw 90   # somewhere else
 ros2 run llm_commander safety_check --repeat 3            # just ask the VLM, no robot involved
 ```
 
@@ -201,8 +201,13 @@ To see what the camera sees:
 
 Notes:
 - The check happens once, when a command starts. The robot isn't monitored while it moves.
-- The test person is visual-only (no collision), so the robot would pass straight through it if not
-  stopped. It exists purely to test perception.
+- **The person has a physics body**, so you can see the risk. Turn safety off, spawn the person and send
+  *"Pick up the red cube and place it in the blue tray."* The arm runs into them, shoves and turns them
+  (about 8 cm and 35° in testing), and knocks the cube out of the gripper. The command then fails with
+  *"RedCube did not end up inside BlueTray"*. With safety on, the same command is refused.
+  - Physics uses one 14 × 14 × 40 cm box around the torso and head (5 kg). The legs are visual-only,
+    so the person can sit over cubes without shoving them.
+  - MoveIt doesn't know about the person, so it plans straight through them.
 - With the question worded only as *"anything risky…"*, Qwen3-VL-4B answered `no` even with a person
   in view. Naming "a person" explicitly fixed that, with no false alarms on the normal scene (including
   while the arm moves near the camera).
@@ -228,7 +233,7 @@ ros2 run llm_commander commander --web --host 0.0.0.0     # reachable as http://
   - the result of the last safety check (CLEAR/RISK), with the exact frame the VLM judged;
   - the buttons: **Reset scene** (gripper open, robot home, cubes back, and any missing trays,
     cubes or camera re-spawned, which is handy after restarting the sim), **Robot home**,
-    **Check now**, **Spawn child**, **Spawn adult** and **Remove person**.
+    **Check now**, **Spawn person** and **Remove person**.
 - **Safety check button** (in the safety card, also the `safety ON/OFF` pill at the top right): turns
   the camera check on or off without restarting. It's green when on.
 
