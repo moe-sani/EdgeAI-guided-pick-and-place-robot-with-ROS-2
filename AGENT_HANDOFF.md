@@ -22,6 +22,12 @@ to use `ai-hub-models/Qwen3-VL-4B-Instruct` **for everything**, for planning too
 - the short yes/no question;
 - *Rescue Randy Sitting* as the person model, because Casual female was too large for the scene.
 
+**Phase 4 (2026-10-01):** a simple GUI to chat, reset the scene and robot, spawn the person and see
+safety triggers. Agent proposed and user approved a **web page built into the commander** (`--web`)
+rather than rqt or RViz, because the user works over SSH from another machine: a browser page reaches
+them, whereas X windows land on the PC's monitor. The user opens it at **http://192.168.1.184:8080**
+(the robot PC's LAN IP), which needs `--host 0.0.0.0`; VS Code didn't auto-forward the port.
+
 ## Status: WORKING (2026-09-30)
 
 - **Phase 1:** the upstream `CubePP_irb120_sim` program (10 steps) runs in Gazebo Harmonic. Verified
@@ -44,6 +50,12 @@ to use `ai-hub-models/Qwen3-VL-4B-Instruct` **for everything**, for planning too
     `spawn_person --remove`, the same command ran normally. Without `--safety`, no camera is needed.
   - The planning matrix with Qwen3-VL-4B was **15/15** after two fixes: JSON repair for a missing
     closing brace, and restoring the prompt (see the gotchas).
+- **Phase 4: web UI works** (agent-verified by clicking through the real page in a browser):
+  - Safety switch on, then **Spawn child**, then the example command: a red RISK line and badge,
+    the judged frame showing the child, and no motion.
+  - **Remove person**, then **Reset scene** (gripper open, home, cubes reset), then the same command:
+    CLEAR, and RedCube ended up in BlueTray.
+  - Restarting the commander while a page is open: the page detects it (`boot` id) and reloads the log.
 - **Commit rule (from user):** commit only as the configured git identity (Moe Sani). Never use an
   AI or agent name as author or committer, and never add `Co-authored-by` trailers.
 - `~/ros2_ws` is a git repo (the user pushes it to their GitHub). Upstream clones in `src/*` are
@@ -128,6 +140,19 @@ to use `ai-hub-models/Qwen3-VL-4B-Instruct` **for everything**, for planning too
   - `llm_commander/spawn_person.py`: a visual-only *Rescue Randy Sitting* (Fuel mesh URL, auto-cached),
     child = 0.6×, adult = 1.0×. Its default spot and heading are `person_spot` in scene.yaml. Re-running
     it moves the person; `--remove` removes it.
+  - `llm_commander/webui.py` and `web/index.html`: the `--web` UI, stdlib `ThreadingHTTPServer`
+    in a daemon thread inside the commander, plus one vanilla-JS page that polls `/api/state` every
+    0.7 s and reloads `/api/camera.jpg` (JPEG encoded on request from the latest ROS frame).
+    - Chat goes through `/api/command`, which puts a string on `node.commands`.
+    - The buttons use `/api/action`. `reset` and `home` are queued as **callables** on the same
+      queue, because the worker runs strings via `run_command` and callables directly, so they
+      never overlap robot motion. The person buttons, `check` and `safety_on/off` run immediately.
+    - Person and scene buttons shell out to `ros2 run llm_commander spawn_person|spawn_scene`, and
+      their output is logged as `[scene]` lines.
+    - `node.say()` also appends to a 500-line ring buffer `(seq, kind, text)`. `kind` comes from
+      the message prefix and drives the colours.
+    - `--web` always creates the `SafetyMonitor`, so the camera is shown even with safety off.
+      `node.safety_enabled` gates commands and can be toggled at runtime.
   - SafetyCamera: a static model with a gz camera sensor, spawned by `spawn_scene` at (0.70, 1.02, 1.65),
     looking at (0.42, 0.45, 0.87), 800×600 at 5 Hz, hfov 1.4. The upstream world already loads the gz
     Sensors system, so no launch or world change was needed. Cameras outside the glass enclosure, or at
@@ -190,6 +215,17 @@ to use `ai-hub-models/Qwen3-VL-4B-Instruct` **for everything**, for planning too
   were dropped along with the watchdog.
 - The Rescue Randy mesh is in 0.1 mm units, with its origin off-centre and the legs along −y; `person_sdf()`
   re-centres it. The mesh URL contains spaces, and Gazebo resolves that fine for Fuel URLs.
+
+## Gotchas found in phase 4
+
+- The sim (Gazebo launch) does **not** include the trays, cubes or camera. After every sim restart, run
+  `spawn_scene` or press **Reset scene** in the web UI.
+- The web UI binds `127.0.0.1` by default. The user needs `--host 0.0.0.0` (no auth, so LAN only).
+- The agent's browser tool runs on the user's machine, so it can't reach the PC's `localhost`. Test
+  through `http://192.168.1.184:8080`.
+- Verdict "age" is computed server-side, so it doesn't depend on the browser machine's clock.
+- Don't run two commanders that both subscribe to `/llm_command`: a published command would execute
+  twice. Commands from the web or a terminal prompt only go to their own process.
 
 ## Ideas for next steps (not started)
 

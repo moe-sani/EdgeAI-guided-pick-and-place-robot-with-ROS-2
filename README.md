@@ -207,6 +207,40 @@ Notes:
   in view. Naming "a person" explicitly fixed that, with no false alarms on the normal scene (including
   while the arm moves near the camera).
 
+## Web UI
+
+A one-page browser UI built into the commander. It uses only the Python standard library and plain
+HTML/JS, so there's nothing to install.
+
+```bash
+# GenieX and the simulation running as above, then:
+source ~/ros2_ws/env.sh
+ros2 run llm_commander commander --web                    # http://localhost:8080
+ros2 run llm_commander commander --web --safety           # same, with the safety check already on
+ros2 run llm_commander commander --web --host 0.0.0.0     # reachable as http://<robot-PC-IP>:8080 on the LAN
+```
+
+- **Left:** chat with the robot. Click an example to fill in the box, or type your own command. It shows the
+  same messages as the terminal, colour-coded: your commands in blue, LLM replies in purple, safety
+  refusals in red.
+- **Right:**
+  - the live safety-camera view;
+  - the result of the last safety check (CLEAR/RISK), with the exact frame the VLM judged;
+  - the buttons: **Reset scene** (gripper open, robot home, cubes back, and any missing trays,
+    cubes or camera re-spawned, which is handy after restarting the sim), **Robot home**,
+    **Check now**, **Spawn child**, **Spawn adult** and **Remove person**.
+- **Safety check button** (in the safety card, also the `safety ON/OFF` pill at the top right): turns
+  the camera check on or off without restarting. It's green when on.
+
+Commands and the Reset/Home buttons queue up behind the robot's current job, so they never collide.
+The person buttons and **Check now** run immediately. The terminal prompt keeps working alongside the page.
+
+**Opening it from your own machine:** the default `127.0.0.1` only accepts local connections, so you
+have two options:
+- Use VS Code's port forwarding (**Ports** panel → forward port 8080, then open `http://localhost:8080`).
+- Start it with `--host 0.0.0.0` and open `http://<robot-PC-IP>:8080`. There's no login, so anyone on
+  that network can drive the robot. That's fine on a trusted LAN, but don't expose it further.
+
 ## Known gotchas
 
 - **Running over SSH**: `env.sh` sends the GUIs to the PC's own monitor (`DISPLAY=:0`). This only

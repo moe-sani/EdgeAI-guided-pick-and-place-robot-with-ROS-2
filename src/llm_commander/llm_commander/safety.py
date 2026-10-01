@@ -74,11 +74,24 @@ class SafetyMonitor:
         self._lock = threading.Lock()
         self._latest = None
         self._stamp = 0.0
+        self.last_judged_jpeg = None  # JPEG bytes of the frame the VLM saw last
         node.create_subscription(Image, self.cam['topic'], self._on_image, 1, callback_group=callback_group)
 
     def _on_image(self, msg):
         with self._lock:
             self._latest, self._stamp = msg, time.monotonic()
+
+    def latest_jpeg(self, width=None, quality=80):
+        """(JPEG bytes, age in s) of the newest camera frame, or (None, None) if none has arrived yet."""
+        with self._lock:
+            msg, age = self._latest, time.monotonic() - self._stamp
+        if msg is None:
+            return None, None
+        img = to_bgr(msg)
+        if width and img.shape[1] > width:
+            img = cv2.resize(img, (width, int(img.shape[0] * width / img.shape[1])), interpolation=cv2.INTER_AREA)
+        ok, jpg = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        return (jpg.tobytes() if ok else None), age
 
     def wait_for_frame(self, timeout_s=10.0):
         deadline = time.monotonic() + timeout_s
@@ -105,7 +118,8 @@ class SafetyMonitor:
         ok, jpg = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 85])
         if not ok:
             raise RuntimeError('JPEG encoding failed')
-        return base64.b64encode(jpg.tobytes()).decode()
+        self.last_judged_jpeg = jpg.tobytes()
+        return base64.b64encode(self.last_judged_jpeg).decode()
 
     def check(self):
         t0 = time.monotonic()

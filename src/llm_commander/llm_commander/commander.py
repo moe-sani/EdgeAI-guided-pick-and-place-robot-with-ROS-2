@@ -3,14 +3,18 @@
 Commands come from the interactive prompt (when run in a terminal) or the /llm_command topic
 (std_msgs/String). Progress and results are printed and published on /llm_response.
 
-Usage:  ros2 run llm_commander commander [--safety] [--config scene.yaml] [--model NAME] [--url URL] [--dry-run]
+Usage:  ros2 run llm_commander commander [--web] [--safety] [--config scene.yaml] [--model NAME] [--url URL] [--dry-run]
+
+--web: also serve a browser UI (chat, live camera, scene buttons) on http://localhost:8080.
 
 --safety: before the robot starts a command, the safety camera image is checked by the VLM; if it sees anything
 risky, the command is refused and the robot does not move.
 """
 import argparse
+import collections
 import os
 import queue
+import subprocess
 import sys
 import threading
 import time
@@ -26,28 +30,36 @@ from llm_commander.llm import LLMPlanner, PlanError
 from llm_commander.robot import RobotSkills, SkillError
 from llm_commander.safety import SafetyMonitor, start_bridge, stop_bridge
 from llm_commander.scene import destinations, load_scene
+from llm_commander.webui import start_web_ui
 
 POSE_TYPE = 'objectpose_msgs/msg/ObjectPose'
 POSE_MAX_AGE_S = 2.0
 
 
 class Commander(Node):
-    def __init__(self, scene, planner, dry_run=False, safety=False):
+    def __init__(self, scene, planner, dry_run=False, safety=False, camera=False):
         super().__init__('llm_commander')
         self.scene, self.planner, self.dry_run = scene, planner, dry_run
         self.dests = destinations(scene)
         self.cb = ReentrantCallbackGroup()
         self.poses, self.pose_stamp, self._pose_subs = {}, {}, {}
         self.lock = threading.Lock()
-        self.commands = queue.Queue()
+        self.commands = queue.Queue()  # command strings, or callables for UI actions (run in order)
         self.busy = threading.Event()
+        self.log_lock = threading.Lock()
+        self.log_lines = collections.deque(maxlen=500)  # (seq, kind, text) for the web UI
+        self.log_seq = 0
+        self.last_verdict = None  # dict(risky, reason, seconds, at) of the latest safety check
 
         self.pub = self.create_publisher(String, '/llm_response', 10)
         self.create_subscription(String, '/llm_command', lambda m: self.commands.put(m.data), 10,
                                  callback_group=self.cb)
         self.create_timer(1.0, self._discover_objects, callback_group=self.cb)
         self.skills = RobotSkills(self, scene, self.dests, self.get_pose, self.all_poses, self.say)
-        self.safety = SafetyMonitor(self, scene, planner, callback_group=self.cb) if safety else None
+        # The camera can be connected without gating commands (the web UI shows it and can toggle safety).
+        self.monitor = (SafetyMonitor(self, scene, planner, callback_group=self.cb)
+                        if (safety or camera) else None)
+        self.safety_enabled = bool(safety)
 
     # ---------- object pose tracking ----------
     def _discover_objects(self):
@@ -78,9 +90,57 @@ class Commander(Node):
                     if now - self.pose_stamp[n] < POSE_MAX_AGE_S and n not in self.dests}
 
     # ---------- command handling ----------
+    @staticmethod
+    def _kind(text):
+        for prefix, kind in (('[command]', 'user'), ('[llm ', 'llm'), ('[safety] RISK', 'risk'),
+                             ('[safety] clear', 'clear'), ('[safety]', 'warn'), ('[error]', 'error'),
+                             ('[failed]', 'error'), ('[done]', 'done'), ('[scene]', 'scene')):
+            if text.startswith(prefix):
+                return kind
+        return 'info'
+
     def say(self, text):
         print(text, flush=True)
         self.pub.publish(String(data=text))
+        with self.log_lock:
+            self.log_seq += 1
+            self.log_lines.append((self.log_seq, self._kind(text), text))
+
+    def log_since(self, seq):
+        with self.log_lock:
+            return [line for line in self.log_lines if line[0] > seq], self.log_seq
+
+    def check_safety(self):
+        v = self.monitor.check()
+        self.last_verdict = dict(risky=v.risky, reason=v.reason, seconds=round(v.seconds, 1), at=time.time())
+        if v.risky:
+            self.say(f'[safety] RISK ({v.reason}, {v.seconds:.1f}s).')
+        else:
+            self.say(f'[safety] clear ({v.seconds:.1f}s)')
+        return v
+
+    # ---------- UI actions ----------
+    def run_tool(self, *args):
+        """Run one of this package's CLI tools (spawn_scene, spawn_person) and log its result lines."""
+        out = subprocess.run(['ros2', 'run', 'llm_commander', *args], capture_output=True, text=True, timeout=120)
+        for line in (out.stdout + out.stderr).splitlines():
+            line = line.split(']: ', 1)[-1].strip()
+            if line and not line.startswith('Waiting for'):
+                self.say(f'[scene] {line}')
+        if out.returncode != 0:
+            self.say(f"[error] {' '.join(args)} exited with code {out.returncode}")
+
+    def reset_scene(self):
+        """Open the gripper, send the robot home, and put all cubes (and missing scene items) back."""
+        self.say('[scene] Resetting: gripper open, robot home, cubes back to start...')
+        if not self.dry_run:
+            try:
+                self.skills.gripper(0.0)
+                self.skills.home()
+            except SkillError as e:
+                self.say(f'[failed] {e}')
+        self.run_tool('spawn_scene', '--reset')
+        self.say('[done] Scene reset.')
 
     def run_step(self, step):
         a = step['action']
@@ -96,12 +156,10 @@ class Commander(Node):
     def run_command(self, command):
         objects = self.live_objects()
         self.say(f'[command] {command}')
-        if self.safety:
-            v = self.safety.check()
-            if v.risky:
-                self.say(f'[safety] RISK ({v.reason}, {v.seconds:.1f}s). Command refused; the robot will not move.')
+        if self.safety_enabled:
+            if self.check_safety().risky:
+                self.say('[safety] Command refused; the robot will not move.')
                 return
-            self.say(f'[safety] clear ({v.seconds:.1f}s)')
         holding = self.skills.holding()
         t0 = time.time()
         try:
@@ -139,7 +197,12 @@ class Commander(Node):
                 continue
             self.busy.set()
             try:
-                self.run_command(cmd.strip())
+                if callable(cmd):
+                    cmd()
+                else:
+                    self.run_command(cmd.strip())
+            except Exception as e:  # keep the worker alive whatever happens
+                self.say(f'[failed] Unexpected error: {e!r}')
             finally:
                 self.busy.clear()
                 self.commands.task_done()
@@ -171,6 +234,10 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help='plan only, do not move the robot')
     parser.add_argument('--safety', action='store_true',
                         help='check the safety camera with the VLM before running each command')
+    parser.add_argument('--web', action='store_true', help='serve the browser UI')
+    parser.add_argument('--port', type=int, default=8080, help='web UI port (default 8080)')
+    parser.add_argument('--host', default='127.0.0.1',
+                        help='web UI address (default 127.0.0.1; use 0.0.0.0 to allow other machines)')
     parser.add_argument('command', nargs='*', help='run a single command and exit')
     args, _ = parser.parse_known_args(rclpy.utilities.remove_ros_args(sys.argv)[1:])
 
@@ -179,20 +246,28 @@ def main():
     planner = LLMPlanner(args.url or llm_cfg['url'], args.model or llm_cfg['model'], llm_cfg.get('timeout_s', 120))
 
     rclpy.init()
-    node = Commander(scene, planner, dry_run=args.dry_run, safety=args.safety)
+    node = Commander(scene, planner, dry_run=args.dry_run, safety=args.safety, camera=args.web)
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     spin_thread = threading.Thread(target=executor.spin, daemon=True)
     spin_thread.start()
     bridge = None
-    if args.safety:
+    if node.monitor:
         bridge = start_bridge(node, scene['camera']['topic'])
-        if not node.safety.wait_for_frame():
+        if not node.monitor.wait_for_frame():
             node.say(f"[safety] WARNING: no image on {scene['camera']['topic']} yet. Run "
-                     f"`ros2 run llm_commander spawn_scene` to add the SafetyCamera; until then commands are refused.")
+                     f"`ros2 run llm_commander spawn_scene` to add the SafetyCamera"
+                     f"{'; until then commands are refused' if args.safety else ''}.")
     threading.Thread(target=node.worker, daemon=True).start()
     node.say(f'[llm_commander] model={planner.model}'
              f'{" | safety camera ON" if args.safety else ""}{" (dry run)" if args.dry_run else ""}')
+    if args.web:
+        try:
+            url = start_web_ui(node, args.host, args.port)
+        except OSError as e:
+            node.say(f'[error] Cannot start the web UI on {args.host}:{args.port}: {e}')
+            raise SystemExit(1)
+        node.say(f'[llm_commander] Web UI: {url}')
 
     try:
         if args.command:
@@ -203,7 +278,8 @@ def main():
         elif sys.stdin.isatty():
             repl(node)
         else:
-            print('No terminal attached; listening on /llm_command. Ctrl+C to stop.')
+            print(f"No terminal attached; listening on /llm_command{' and the web UI' if args.web else ''}. "
+                  'Ctrl+C to stop.')
             while rclpy.ok():
                 time.sleep(1.0)
     except KeyboardInterrupt:
