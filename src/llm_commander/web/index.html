@@ -51,6 +51,8 @@
   #badge.risk { background:#4a1520; color:var(--red); }
   #judged { width:140px; border-radius:6px; display:none; }
   #vtext { color:var(--dim); font-size:12px; flex:1; }
+  #verdict.inactive #badge { background:var(--line); color:var(--dim); }
+  #verdict.inactive #judged { filter:grayscale(1); opacity:.5; }
   .buttons { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
   #safetypill { cursor:pointer; }
   #safetypill.on { background:#123d27; color:var(--green); }
@@ -175,10 +177,14 @@ async function poll() {
     $('safetypill').className = 'pill' + (s.safety ? ' on' : '');
     updatePrompt(s);
     const v = s.verdict;
+    // With the safety check off, the last result doesn't gate anything: show it greyed out.
+    $('verdict').classList.toggle('inactive', !s.safety);
+    if (!v) $('vtext').textContent = s.safety ? 'No check yet.' : 'Safety check is off.';
     if (v) {
       $('badge').textContent = v.risky ? 'RISK' : 'CLEAR';
       $('badge').className = v.risky ? 'risk' : 'clear';
-      $('vtext').textContent = `${v.reason} · ${v.seconds}s · ${ago(v.age)}`;
+      $('vtext').textContent = (s.safety ? '' : 'Safety check is off. Last result: ')
+        + `${v.reason} · ${v.seconds}s · ${ago(v.age)}`;
       if (v.at !== lastVerdictAt) {
         lastVerdictAt = v.at;
         $('judged').src = '/api/judged.jpg?t=' + v.at;
