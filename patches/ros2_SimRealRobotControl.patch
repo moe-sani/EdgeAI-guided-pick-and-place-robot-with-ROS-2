@@ -1,0 +1,58 @@
+diff --git a/ros2srrc_launch/moveit2/moveit2.launch.py b/ros2srrc_launch/moveit2/moveit2.launch.py
+index 7a50eed..0b24e3d 100644
+--- a/ros2srrc_launch/moveit2/moveit2.launch.py
++++ b/ros2srrc_launch/moveit2/moveit2.launch.py
+@@ -133,6 +133,9 @@ def EEctrlEXISTS(EEName):
+ def generate_launch_description():
+ 
+     LD = LaunchDescription()
++
++    # === INPUT ARGUMENT: RVIZ (optional, rviz:=false to skip the RViz window) === #
++    RVIZ = str(AssignArgument("rviz")).lower() not in ("false", "0", "no")
+     
+     # === INPUT ARGUMENT: ROS 2 PACKAGE === #
+     PACKAGE_NAME = AssignArgument("package")
+@@ -577,8 +580,7 @@ def generate_launch_description():
+                 # MoveIt!2:
+                 TimerAction(
+                     period=2.0,
+-                    actions=[
+-                        rviz_node_full,
++                    actions=([rviz_node_full] if RVIZ else []) + [
+                         run_move_group_node,
+                     ]
+                 ),
+diff --git a/ros2srrc_robots/irb120/meshes/visual/link_3.dae b/ros2srrc_robots/irb120/meshes/visual/link_3.dae
+index 7cba586..b73e617 100644
+--- a/ros2srrc_robots/irb120/meshes/visual/link_3.dae
++++ b/ros2srrc_robots/irb120/meshes/visual/link_3.dae
+@@ -16,10 +16,10 @@
+         <technique sid="common">
+           <lambert>
+             <emission>
+-              <color sid="emission">0 0 0 1</color>
++              <color sid="emission">0.3 0.3 0.3 1</color>
+             </emission>
+             <diffuse>
+-              <color sid="diffuse">0.846873 0.027321 0.039546 1</color>
++              <color sid="diffuse">0.679542 0.679542 0.679542 1</color>
+             </diffuse>
+             <index_of_refraction>
+               <float sid="ior">1.45</float>
+diff --git a/ros2srrc_robots/irb120/meshes/visual/link_4.dae b/ros2srrc_robots/irb120/meshes/visual/link_4.dae
+index 9a82bfe..c17eca6 100644
+--- a/ros2srrc_robots/irb120/meshes/visual/link_4.dae
++++ b/ros2srrc_robots/irb120/meshes/visual/link_4.dae
+@@ -16,10 +16,10 @@
+         <technique sid="common">
+           <lambert>
+             <emission>
+-              <color sid="emission">0.021429 0.021429 0.021429 1</color>
++              <color sid="emission">0.3 0.3 0.3 1</color>
+             </emission>
+             <diffuse>
+-              <color sid="diffuse">0.846873 0.027321 0.039546 1</color>
++              <color sid="diffuse">0.679542 0.679542 0.679542 1</color>
+             </diffuse>
+             <index_of_refraction>
+               <float sid="ior">1.45</float>

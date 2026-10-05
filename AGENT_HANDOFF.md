@@ -60,7 +60,19 @@ them, whereas X windows land on the PC's monitor. The user opens it at **http://
   AI or agent name as author or committer, and never add `Co-authored-by` trailers.
 - `~/ros2_ws` is a git repo (the user pushes it to their GitHub). Upstream clones in `src/*` are
   git-ignored and pinned in `ros2_ws.repos`. `src/llm_commander` is ours and committed.
-  No upstream code has been modified.
+  **Upstream is modified only through `patches/*.patch`**, applied by `./apply_patches.sh` (idempotent;
+  tested on a clean checkout at the pinned commit). Currently there's one patch, for
+  ros2_SimRealRobotControl, added on 2026-10-05 at the user's request:
+  - **ABB logo hidden**: the logo is geometry with its own red material (`Material_9`) in
+    `irb120/meshes/visual/link_3.dae` and `link_4.dae`. The patch gives it the body material's
+    diffuse and emission (`Material_3`), so it blends in (a faint raised outline remains). The
+    geometry and the collision meshes are unchanged. Gazebo and RViz load the meshes at start, so a
+    sim restart is needed.
+  - **`rviz:=false`** in `ros2srrc_launch/moveit2/moveit2.launch.py` (it defaults to on, as upstream).
+    Verified: no rviz2 process, with move_group, 4 controllers and the `/Move` and `/Robmove`
+    actions still up. The user doesn't use RViz.
+  - To change a patch: edit the upstream clone, then
+    `git -C src/ros2_SimRealRobotControl diff > patches/ros2_SimRealRobotControl.patch`.
 
 ## Machine facts
 
