@@ -57,3 +57,6 @@ safety:
   max_image_age_s: 2.0      # refuse to judge from a stale frame
   image_width: 640          # frames are downscaled before being sent to the VLM
   save_frame: /tmp/llm_commander_safety.jpg   # last frame the VLM judged (for debugging)
+  # Question asked with every frame; the answer must start with yes (= risky) or no.
+  # Leave empty to use the built-in default; it can also be changed in the web UI (while safety is off).
+  prompt: ""

@@ -71,6 +71,9 @@ def stop_bridge(proc):
 class SafetyMonitor:
     def __init__(self, node, scene, client, callback_group=None):
         self.cfg, self.cam, self.client = scene['safety'], scene['camera'], client
+        # The question asked with every frame. "yes" must mean risky; it can be changed at runtime.
+        self.default_prompt = (self.cfg.get('prompt') or SAFETY_PROMPT).strip()
+        self.prompt = self.default_prompt
         self._lock = threading.Lock()
         self._latest = None
         self._stamp = 0.0
@@ -126,7 +129,7 @@ class SafetyMonitor:
         try:
             b64 = self._frame_b64()
             raw = self.client.chat([{'role': 'user', 'content': [
-                {'type': 'text', 'text': SAFETY_PROMPT},
+                {'type': 'text', 'text': self.prompt},
                 {'type': 'image_url', 'image_url': {'url': f'data:image/jpeg;base64,{b64}'}},
             ]}], max_tokens=5)
             answer = re.sub(r'<think>.*?</think>', '', raw, flags=re.S).strip().lower()
@@ -146,6 +149,7 @@ def main():
     parser.add_argument('--config', default=None)
     parser.add_argument('--model', default=None)
     parser.add_argument('--repeat', type=int, default=1)
+    parser.add_argument('--prompt', default=None, help='try a different safety question (yes = risky)')
     args, _ = parser.parse_known_args(rclpy.utilities.remove_ros_args(sys.argv)[1:])
 
     scene = load_scene(args.config)
@@ -154,6 +158,9 @@ def main():
     rclpy.init()
     node = rclpy.create_node('llm_safety_check')
     monitor = SafetyMonitor(node, scene, client)
+    if args.prompt:
+        monitor.prompt = args.prompt
+    print(f'Prompt: {monitor.prompt}')
     executor = rclpy.executors.SingleThreadedExecutor()
     executor.add_node(node)
     threading.Thread(target=executor.spin, daemon=True).start()

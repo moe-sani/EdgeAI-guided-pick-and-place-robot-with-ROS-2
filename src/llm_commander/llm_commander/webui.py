@@ -7,6 +7,7 @@ Endpoints (all served by the commander process):
   GET  /api/judged.jpg    the frame the VLM judged last
   POST /api/command       {"text": "..."}  -> queued like a typed command
   POST /api/action        {"name": "..."}  -> scene / safety buttons
+  POST /api/safety_prompt {"text": "..."}  -> change the safety question ("" = default); only while safety is off
 """
 import json
 import os
@@ -90,6 +91,8 @@ def _handler(node):
                     'busy': node.busy.is_set(), 'queued': node.commands.qsize(),
                     'model': node.planner.model, 'dry_run': node.dry_run,
                     'camera': node.monitor is not None, 'safety': node.safety_enabled,
+                    'safety_prompt': node.monitor.prompt if node.monitor else None,
+                    'default_safety_prompt': node.monitor.default_prompt if node.monitor else None,
                     'verdict': node.last_verdict and dict(  # age computed here: browser clocks may differ
                         node.last_verdict, age=round(time.time() - node.last_verdict['at'])),
                     'objects': node.live_objects(), 'destinations': list(node.dests),
@@ -113,6 +116,18 @@ def _handler(node):
                     return self._send(400, {'error': 'empty command'})
                 node.commands.put(text)
                 return self._send(200, {'queued': node.commands.qsize()})
+            if self.path == '/api/safety_prompt':
+                if node.monitor is None:
+                    return self._send(400, {'error': 'no camera connected'})
+                if node.safety_enabled:  # don't change the rules while they are being enforced
+                    return self._send(409, {'error': 'Turn the safety check off to change the prompt.'})
+                text = ' '.join(str(body.get('text', '')).split())
+                if len(text) > 1000:
+                    return self._send(400, {'error': 'prompt too long (max 1000 characters)'})
+                node.monitor.prompt = text or node.monitor.default_prompt
+                node.say(f'[safety] Prompt reset to the default: "{node.monitor.prompt}"' if not text
+                         else f'[safety] Prompt changed to: "{node.monitor.prompt}"')
+                return self._send(200, {'prompt': node.monitor.prompt})
             if self.path == '/api/action':
                 name = body.get('name')
                 if name not in actions:

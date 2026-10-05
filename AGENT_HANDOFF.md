@@ -144,6 +144,13 @@ them, whereas X windows land on the PC's monitor. The user opens it at **http://
     1 s, has a worker queue, an interactive prompt (when stdin is a TTY), a single-command CLI mode,
     `/llm_command` in, `/llm_response` out, `--dry-run`, and `--safety` (a camera check at command start,
     *before* planning, so a refusal isn't preceded by the LLM's past-tense reply).
+  - **Safety prompt is changeable** (added 2026-10-05). `SafetyMonitor.prompt` is the question in use;
+    `default_prompt` comes from `safety.prompt` in scene.yaml, or `SAFETY_PROMPT` if that's empty.
+    - Web: `POST /api/safety_prompt {"text"}` (`""` = default). It returns **409 while
+      `safety_enabled`**; the user asked that it only be changeable with safety off.
+    - The page shows the default as the textarea placeholder and doesn't overwrite text the user
+      is typing. Its logic was tested with a Node DOM-stub test (10 checks).
+    - `safety_check --prompt "..."` tries a question from the CLI. Changes are in-memory only.
   - `llm_commander/safety.py`: `SafetyMonitor` subscribes to `/safety_camera/image`, downsizes the
     latest frame to 640 px JPEG, and asks the VLM a yes/no question (`max_tokens=5`). It is
     **fail-safe**: no frame, a frame older than 2 s, a server error or a non-yes/no answer all count as

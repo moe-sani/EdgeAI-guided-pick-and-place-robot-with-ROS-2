@@ -37,6 +37,7 @@
   button { cursor:pointer; padding:9px 14px; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--text); font-size:13px; }
   button:hover { border-color:var(--blue); }
   button.primary { background:var(--blue); border-color:var(--blue); color:#fff; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
   button.danger { border-color:#6b2730; }
   button.danger:hover { border-color:var(--red); }
   #side { padding:14px 16px; overflow-y:auto; display:flex; flex-direction:column; gap:12px; }
@@ -57,6 +58,15 @@
   #safetybtn.on { background:#123d27; border-color:var(--green); color:var(--green); }
   #safetybtn.off { color:var(--dim); }
   #safetybtn:disabled { opacity:.5; cursor:not-allowed; }
+  #promptbox { margin-top:12px; }
+  #promptbox label { display:block; font-size:12px; color:var(--dim); margin-bottom:4px; }
+  #prompt { width:100%; min-height:58px; resize:vertical; padding:8px 10px; border-radius:8px;
+            border:1px solid var(--line); background:var(--bg); color:var(--text); font:13px/1.4 system-ui, sans-serif; }
+  #prompt:disabled { opacity:.6; cursor:not-allowed; }
+  #prompt.dirty { border-color:var(--amber); }
+  .promptrow { display:flex; align-items:center; gap:8px; margin-top:6px; }
+  .promptrow button { padding:6px 12px; }
+  #prompthint { font-size:12px; color:var(--dim); flex:1; }
 </style>
 </head>
 <body>
@@ -91,6 +101,15 @@
         <div id="vtext">No check yet.</div>
         <img id="judged" alt="frame the VLM judged" title="Frame the VLM judged">
       </div>
+      <div id="promptbox">
+        <label for="prompt">Question asked about each camera frame (the answer must be yes = risky, or no)</label>
+        <textarea id="prompt" rows="2" spellcheck="false"></textarea>
+        <div class="promptrow">
+          <span id="prompthint"></span>
+          <button type="button" id="promptdefault" title="Go back to the built-in question">Default</button>
+          <button type="button" id="promptsave" class="primary">Save</button>
+        </div>
+      </div>
     </div>
     <div class="card">
       <h2>Scene</h2>
@@ -106,7 +125,7 @@
 </main>
 <script>
 const $ = id => document.getElementById(id);
-let seq = 0, lastVerdictAt = null, boot = null, safetyOn = false;
+let seq = 0, lastVerdictAt = null, boot = null, safetyOn = false, promptDirty = false, serverPrompt = null;
 const EXAMPLES = [
   'Pick up the red cube and place it in the blue tray.',
   'Put the green cube in the green tray',
@@ -154,6 +173,7 @@ async function poll() {
     $('safetybtn').disabled = !s.camera;
     $('safetypill').textContent = s.safety ? 'safety ON' : 'safety OFF';
     $('safetypill').className = 'pill' + (s.safety ? ' on' : '');
+    updatePrompt(s);
     const v = s.verdict;
     if (v) {
       $('badge').textContent = v.risky ? 'RISK' : 'CLEAR';
@@ -184,7 +204,51 @@ $('form').onsubmit = e => {
   const text = $('cmd').value.trim();
   if (text) { post('/api/command', {text}); $('cmd').value = ''; }
 };
-function toggleSafety() { post('/api/action', {name: safetyOn ? 'safety_off' : 'safety_on'}); }
+function toggleSafety() {
+  if (!safetyOn && promptDirty && !confirm('The edited safety question is not saved. Turn the safety check on anyway (with the saved question)?')) return;
+  post('/api/action', {name: safetyOn ? 'safety_off' : 'safety_on'});
+}
+
+function updatePrompt(s) {
+  const box = $('prompt');
+  if (!('safety_prompt' in s)) {  // page is newer than the running commander
+    box.value = ''; box.disabled = true;
+    $('promptsave').disabled = $('promptdefault').disabled = true;
+    $('prompthint').textContent = '⚠ Restart the commander to edit the safety question here.';
+    return;
+  }
+  const locked = !s.camera || s.safety;
+  box.placeholder = s.default_safety_prompt || '';
+  if (s.safety_prompt !== serverPrompt) {  // changed on the server (saved here, another tab, or restart)
+    serverPrompt = s.safety_prompt;
+    promptDirty = false;
+  }
+  if (!promptDirty && document.activeElement !== box) box.value = serverPrompt || '';
+  if (locked && promptDirty) { box.value = serverPrompt || ''; promptDirty = false; }  // safety turned on elsewhere
+  box.disabled = locked;
+  box.classList.toggle('dirty', promptDirty);
+  $('promptsave').disabled = locked || !promptDirty;
+  $('promptdefault').disabled = locked || (serverPrompt === s.default_safety_prompt && !promptDirty);
+  $('prompthint').textContent = !s.camera ? 'No camera connected.'
+    : s.safety ? '🔒 Turn the safety check off to edit.'
+    : promptDirty ? 'Not saved yet.'
+    : serverPrompt === s.default_safety_prompt ? 'Using the default question.' : 'Using a custom question.';
+}
+
+async function savePrompt(text) {
+  const r = await fetch('/api/safety_prompt', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                                body: JSON.stringify({text})});
+  if (!r.ok) { addLine('error', '[ui] ' + ((await r.json()).error || r.statusText)); return; }
+  serverPrompt = (await r.json()).prompt;
+  $('prompt').value = serverPrompt;
+  promptDirty = false;
+  $('prompt').blur();
+}
+
+$('prompt').oninput = () => { promptDirty = $('prompt').value.trim() !== (serverPrompt || ''); };
+$('prompt').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (promptDirty) savePrompt($('prompt').value); } };
+$('promptsave').onclick = () => savePrompt($('prompt').value);
+$('promptdefault').onclick = () => savePrompt('');
 $('safetybtn').onclick = toggleSafety;
 $('safetypill').onclick = toggleSafety;
 document.querySelectorAll('[data-action]').forEach(b => b.onclick = () => post('/api/action', {name: b.dataset.action}));

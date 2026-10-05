@@ -171,6 +171,10 @@ moves. The latest SafetyCamera frame goes to the same VLM with the question:
 
 > *Is there a person, or anything else risky, on the way of the robot? reply with yes or no only*
 
+**Changing the question:** in the web UI's safety card (see below), or permanently with `safety.prompt`
+in `scene.yaml`. The question must make the model answer **yes** for risky and **no** for safe; any other
+answer is treated as risky. A custom question applies until the commander restarts.
+
 On `yes`, the command is refused and the robot doesn't move. Anything other than a clear `no` (no
 camera image, a stale image, server error, unexpected answer) also counts as risky. The check takes
 about 0.7 s. The commander starts the gz → ROS image bridge for `/safety_camera/image` itself.
@@ -184,6 +188,7 @@ ros2 run llm_commander spawn_person                       # terminal 4: person a
 ros2 run llm_commander spawn_person --remove              # ...and goes away again
 ros2 run llm_commander spawn_person --x 0.6 --y 0.3 --yaw 90   # somewhere else
 ros2 run llm_commander safety_check --repeat 3            # just ask the VLM, no robot involved
+ros2 run llm_commander safety_check --prompt "Is there a blue tray? reply with yes or no only"   # try a question
 ```
 
 ```text
@@ -239,6 +244,12 @@ ros2 run llm_commander commander --web --host 0.0.0.0     # reachable as http://
     **Check now**, **Spawn person** and **Remove person**.
 - **Safety check button** (in the safety card, also the `safety ON/OFF` pill at the top right): turns
   the camera check on or off without restarting. It's green when on.
+- **Safety question** (in the safety card): the question asked about each frame. If you clear the box,
+  the default question shows as placeholder text. **Editable only while the safety check is off**; the
+  server enforces this too, so the rules can't change while they're being applied.
+  - Edit it, then press **Save** or Enter; **Default** goes back to the built-in question.
+  - Use **Check now** to try it before turning the check on.
+  - The change is logged in the chat, and lasts until the commander restarts.
 
 Commands and the Reset/Home buttons queue up behind the robot's current job, so they never collide.
 The person buttons and **Check now** run immediately. The terminal prompt keeps working alongside the page.
