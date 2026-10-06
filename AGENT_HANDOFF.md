@@ -63,11 +63,16 @@ them, whereas X windows land on the PC's monitor. The user opens it at **http://
   **Upstream is modified only through `patches/*.patch`**, applied by `./apply_patches.sh` (idempotent;
   tested on a clean checkout at the pinned commit). Currently there's one patch, for
   ros2_SimRealRobotControl, added on 2026-10-05 at the user's request:
-  - **ABB logo hidden**: the logo is geometry with its own red material (`Material_9`) in
-    `irb120/meshes/visual/link_3.dae` and `link_4.dae`. The patch gives it the body material's
-    diffuse and emission (`Material_3`), so it blends in (a faint raised outline remains). The
-    geometry and the collision meshes are unchanged. Gazebo and RViz load the meshes at start, so a
-    sim restart is needed.
+  - **`logo:=true|false`** (default **false** = hidden; the user asked for a flag on 2026-10-06).
+    The logo is geometry with its own red material (`Material_9`) in the IRB-120 visual meshes
+    `link_3.dae` and `link_4.dae`. With the logo hidden, `HideABBLogo()` in moveit2.launch.py writes
+    copies to `~/.cache/ros2srrc/irb120_nologo/` whose `Material_9` gets the body's diffuse and
+    emission (`Material_3`); a faint raised outline remains. The copies are regenerated if the
+    originals are newer. It then rewrites those two mesh URIs in `robot_description`, which covers
+    Gazebo, RViz and robot_state_publisher. The original meshes are untouched, the geometry and
+    collision meshes are unchanged, and the patch stays small. Verified in the sim both ways, by
+    the camera frame and the robot_description mesh paths. Only `moveit2.launch.py` has the flag;
+    `gazebo/simulation.launch.py` doesn't.
   - **`rviz:=false`** in `ros2srrc_launch/moveit2/moveit2.launch.py` (it defaults to on, as upstream).
     Verified: no rviz2 process, with move_group, 4 controllers and the `/Move` and `/Robmove`
     actions still up. The user doesn't use RViz.
@@ -77,6 +82,19 @@ them, whereas X windows land on the PC's monitor. The user opens it at **http://
 ## Machine facts
 
 - Ubuntu 24.04 on **aarch64 (Snapdragon)**, ROS 2 Jazzy at `/opt/ros/jazzy`, 8 cores, 34 GB RAM, passwordless sudo.
+- **Board: Qualcomm Dragonwing IQ9** (sa8775p / QCS9100, ALSA card `LEMANS-EVK`). **Audio fix (2026-10-06):**
+  PipeWire offered no real output (only "Dummy Output"). The board card only offers the `pro-audio`
+  profile, because ACP doesn't use the installed UCM, and WirePlumber never auto-selects `pro-audio`, so
+  the card stayed `off`. The hardware is fine (speaker-test on `hw:0,0` and `hw:0,2` both audible).
+  - Fixed with `pactl set-card-profile alsa_card.platform-sound pro-audio`. WirePlumber remembers it in
+    `~/.local/state/wireplumber/default-profile`.
+  - Sinks: `pro-output-0` = board speaker, `pro-output-2` = DP/HDMI monitor, which is the **default**
+    (the user's choice).
+  - The default source was restored to the Creative webcam mic. Enabling the profile had switched it
+    to the board's `pro-input-1`.
+  - Undo: `pactl set-card-profile alsa_card.platform-sound off`.
+  - The user runs the web UI in **Firefox on the robot PC** (`http://localhost:8080`, so the mic is
+    allowed without HTTPS). Firefox's speechSynthesis there uses speech-dispatcher with espeak-ng.
 - GNOME **Wayland** desktop. `env.sh` sets `DISPLAY=:0`, `XAUTHORITY` (a glob on
   `/run/user/1000/.mutter-Xwaylandauth.*`, because the name changes every login) and `XDG_RUNTIME_DIR`
   when `DISPLAY` is empty, so GUIs launched from SSH or VS Code terminals appear on the PC's monitor.

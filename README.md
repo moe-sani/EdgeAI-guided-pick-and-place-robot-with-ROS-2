@@ -23,7 +23,7 @@ by a local vision-language model refuses commands when a person is in the cell. 
 | `AGENT_HANDOFF.md` | Detailed notes and gotchas for continuing the work (human or AI agent) |
 | `src/llm_commander/` | **Our package**: natural-language control via a local LLM, plus the coloured-tray scene |
 | `src/*` (everything else) | Upstream clones (git-ignored; restored via `vcs import`) |
-| `patches/`, `apply_patches.sh` | Our small changes to the upstream clones (no ABB logo, optional RViz); re-applied by the script |
+| `patches/`, `apply_patches.sh` | Our small changes to the upstream clones (`logo:=` and `rviz:=` launch flags); re-applied by the script |
 
 ## Setup from scratch
 
@@ -36,7 +36,7 @@ sudo apt install ros-jazzy-moveit ros-jazzy-xacro ros-dev-tools \
 # 2. Sources
 cd ~/ros2_ws
 vcs import src < ros2_ws.repos
-./apply_patches.sh        # small upstream tweaks: hide the ABB logo, add rviz:=false (safe to re-run)
+./apply_patches.sh        # small upstream tweaks: logo:= and rviz:= launch flags (safe to re-run)
 source /opt/ros/jazzy/setup.bash
 rosdep install -r --from-paths src --ignore-src --rosdistro jazzy -y   # gz-math7 warning is harmless
 
@@ -55,7 +55,8 @@ Terminal 1 starts Gazebo, MoveIt and RViz:
 ```bash
 source ~/ros2_ws/env.sh
 ros2 launch ros2srrc_launch moveit2.launch.py package:=irb120cranfield config:=irb120cranfield_2
-# add rviz:=false to skip the RViz window (everything else still works)
+# rviz:=false  skips the RViz window (everything else still works)
+# logo:=true   shows the ABB logo on the arm (hidden by default)
 ```
 
 Terminal 2 spawns a cube and runs the program. Wait until "You can start planning now!" appears
