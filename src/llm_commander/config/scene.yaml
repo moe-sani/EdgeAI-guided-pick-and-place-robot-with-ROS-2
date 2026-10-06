@@ -60,3 +60,9 @@ safety:
   # Question asked with every frame; the answer must start with yes (= risky) or no.
   # Leave empty to use the built-in default; it can also be changed in the web UI (while safety is off).
   prompt: ""
+
+# Offline voice commands in the web UI (whisper.cpp, built in ~/tools; see README).
+voice:
+  whisper_bin: ~/tools/whisper.cpp/build/bin/whisper-cli
+  whisper_model: ~/tools/whisper.cpp/models/ggml-base.en.bin
+  threads: 8

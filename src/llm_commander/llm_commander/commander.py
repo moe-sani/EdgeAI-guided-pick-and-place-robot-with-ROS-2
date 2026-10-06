@@ -30,6 +30,7 @@ from llm_commander.llm import LLMPlanner, PlanError
 from llm_commander.robot import RobotSkills, SkillError
 from llm_commander.safety import SafetyMonitor, start_bridge, stop_bridge
 from llm_commander.scene import destinations, load_scene
+from llm_commander.voice import Transcriber
 from llm_commander.webui import start_web_ui
 
 POSE_TYPE = 'objectpose_msgs/msg/ObjectPose'
@@ -60,6 +61,7 @@ class Commander(Node):
         self.monitor = (SafetyMonitor(self, scene, planner, callback_group=self.cb)
                         if (safety or camera) else None)
         self.safety_enabled = bool(safety)
+        self.voice = None  # Transcriber, set by main() when --web and whisper.cpp is available
 
     # ---------- object pose tracking ----------
     def _discover_objects(self):
@@ -92,7 +94,7 @@ class Commander(Node):
     # ---------- command handling ----------
     @staticmethod
     def _kind(text):
-        for prefix, kind in (('[command]', 'user'), ('[llm ', 'llm'), ('[safety] RISK', 'risk'),
+        for prefix, kind in (('[voice]', 'scene'), ('[command]', 'user'), ('[llm ', 'llm'), ('[safety] RISK', 'risk'),
                              ('[safety] clear', 'clear'), ('[safety]', 'warn'), ('[error]', 'error'),
                              ('[failed]', 'error'), ('[done]', 'done'), ('[scene]', 'scene')):
             if text.startswith(prefix):
@@ -236,6 +238,8 @@ def main():
                         help='check the safety camera with the VLM before running each command')
     parser.add_argument('--web', action='store_true', help='serve the browser UI')
     parser.add_argument('--port', type=int, default=8080, help='web UI port (default 8080)')
+    parser.add_argument('--https', action='store_true',
+                        help='serve the web UI over HTTPS (self-signed); browsers need this for the microphone')
     parser.add_argument('--host', default='127.0.0.1',
                         help='web UI address (default 127.0.0.1; use 0.0.0.0 to allow other machines)')
     parser.add_argument('command', nargs='*', help='run a single command and exit')
@@ -262,8 +266,14 @@ def main():
     node.say(f'[llm_commander] model={planner.model}'
              f'{" | safety camera ON" if args.safety else ""}{" (dry run)" if args.dry_run else ""}')
     if args.web:
+        if 'voice' in scene:
+            t = Transcriber(scene['voice'])
+            if t.available():
+                node.voice = t
+            else:
+                node.say(f"[voice] Voice input off: whisper.cpp not found at {scene['voice']['whisper_bin']}")
         try:
-            url = start_web_ui(node, args.host, args.port)
+            url = start_web_ui(node, args.host, args.port, https=args.https)
         except OSError as e:
             node.say(f'[error] Cannot start the web UI on {args.host}:{args.port}: {e}')
             raise SystemExit(1)

@@ -38,6 +38,12 @@
   button:hover { border-color:var(--blue); }
   button.primary { background:var(--blue); border-color:var(--blue); color:#fff; }
   button:disabled { opacity:.45; cursor:not-allowed; }
+  #mic { min-width:48px; font-size:16px; }
+  #mic.rec { background:var(--red); border-color:var(--red); color:#fff; animation:pulse 1s infinite; }
+  #mic.busy { color:var(--amber); }
+  @keyframes pulse { 50% { opacity:.6; } }
+  #speakpill { cursor:pointer; }
+  #speakpill.on { background:#1a2433; color:var(--blue); }
   button.danger { border-color:#6b2730; }
   button.danger:hover { border-color:var(--red); }
   #side { padding:14px 16px; overflow-y:auto; display:flex; flex-direction:column; gap:12px; }
@@ -77,6 +83,7 @@
   <span id="status" class="pill">connecting…</span>
   <span id="model" class="pill"></span>
   <span class="grow"></span>
+  <span id="speakpill" class="pill" title="Read the robot's replies aloud (uses an offline voice on this computer)">🔇 voice off</span>
   <span id="safetypill" class="pill" title="Click to switch the safety check on/off">safety …</span>
 </header>
 <main>
@@ -85,6 +92,7 @@
     <div id="examples"></div>
     <form id="form">
       <input type="text" id="cmd" placeholder="Tell the robot what to do…" autocomplete="off" autofocus>
+      <button type="button" id="mic" title="Click, speak your command, click again: the text appears in the box to check and send" style="display:none">🎤</button>
       <button class="primary" type="submit">Send</button>
     </form>
   </section>
@@ -161,8 +169,11 @@ async function poll() {
       boot = s.boot;
       seq = 0;
       s = await (await fetch('/api/state?since=0')).json();
+      spokenUpTo = s.seq;
     }
-    for (const [, kind, text] of s.lines) addLine(kind, text);
+    for (const [lseq, kind, text] of s.lines) { addLine(kind, text); if (lseq > spokenUpTo) speakLine(kind, text); }
+    spokenUpTo = Math.max(spokenUpTo, s.seq);
+    $('mic').style.display = s.voice ? '' : 'none';
     seq = s.seq;
     const st = $('status');
     st.textContent = s.busy ? `robot busy${s.queued ? ` · ${s.queued} queued` : ''}` : 'ready';
@@ -264,6 +275,99 @@ for (const ex of EXAMPLES) {
   c.onclick = () => { $('cmd').value = ex; $('cmd').focus(); };
   $('examples').appendChild(c);
 }
+// ---------- voice: read replies aloud (browser's offline voices) ----------
+let spokenUpTo = 0;  // log lines up to here are not read out (set on (re)connect: no reading old history)
+let speakOn = localStorage.getItem('speak') === '1';
+function pickVoice() {
+  const vs = speechSynthesis.getVoices().filter(v => v.localService && v.lang.startsWith('en'));
+  for (const name of ['Samantha', 'Daniel', 'Karen', 'Moira', 'Alex', 'Google UK English Female']) {
+    const v = vs.find(v => v.name.startsWith(name)); if (v) return v;
+  }
+  return vs[0] || null;
+}
+function say(text) {
+  if (!speakOn || !text) return;
+  const u = new SpeechSynthesisUtterance(text);
+  const v = pickVoice(); if (v) u.voice = v;  // only local (offline) voices are used
+  speechSynthesis.speak(u);
+}
+function speakLine(kind, text) {
+  if (kind === 'llm' && text.startsWith('[llm ')) say(text.replace(/^\[llm [^\]]*\]\s*/, ''));
+  else if (kind === 'risk') say('Safety risk detected.');
+  else if (text.startsWith('[safety] Command refused')) say('Command refused. The robot will not move.');
+  else if (kind === 'done' && text.startsWith('[done] All steps')) say('Done.');
+  else if (text.startsWith('[failed]')) say('Failed. ' + text.replace(/^\[failed\]\s*/, '').replace(/\([^)]*\)/g, '').replace('Stopping the remaining steps.', ''));
+  else if (text.startsWith('[error]')) say('Error.');
+  else if (text.startsWith('[voice] (nothing heard')) say('Sorry, I did not hear anything.');
+}
+function showSpeak() {
+  $('speakpill').textContent = speakOn ? '🔊 voice on' : '🔇 voice off';
+  $('speakpill').className = 'pill' + (speakOn ? ' on' : '');
+}
+$('speakpill').onclick = () => {
+  speakOn = !speakOn; localStorage.setItem('speak', speakOn ? '1' : '0'); showSpeak();
+  if (speakOn) say('Voice replies on.'); else speechSynthesis.cancel();
+};
+showSpeak();
+speechSynthesis.getVoices();
+
+// ---------- voice: microphone -> 16 kHz WAV -> robot PC (whisper.cpp) ----------
+let rec = null;
+async function startRec() {
+  if (!navigator.mediaDevices) {
+    addLine('error', '[voice] The browser only allows the microphone on https:// or http://localhost pages. '
+      + 'Start the commander with --https, or forward port ' + location.port + ' and open http://localhost:' + location.port);
+    return;
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true}});
+  const ctx = new AudioContext();
+  const src = ctx.createMediaStreamSource(stream);
+  const proc = ctx.createScriptProcessor(4096, 1, 1);
+  const chunks = [];
+  proc.onaudioprocess = e => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  src.connect(proc); proc.connect(ctx.destination);
+  rec = {stream, ctx, src, proc, chunks, rate: ctx.sampleRate};
+  speechSynthesis.cancel();
+  $('mic').className = 'rec'; $('mic').textContent = '■';
+}
+function toWav16k(chunks, rate) {
+  const n = chunks.reduce((a, c) => a + c.length, 0), all = new Float32Array(n);
+  let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
+  const ratio = rate / 16000, len = Math.floor(n / ratio), pcm = new Int16Array(len);
+  for (let i = 0; i < len; i++) {  // average the samples that fall into each 16 kHz slot
+    const a = Math.floor(i * ratio), b = Math.min(n, Math.floor((i + 1) * ratio));
+    let sum = 0; for (let j = a; j < b; j++) sum += all[j];
+    const v = sum / Math.max(1, b - a); pcm[i] = Math.max(-1, Math.min(1, v)) * 0x7fff;
+  }
+  const buf = new ArrayBuffer(44 + pcm.length * 2), d = new DataView(buf);
+  const w = (p, str) => { for (let i = 0; i < str.length; i++) d.setUint8(p + i, str.charCodeAt(i)); };
+  w(0, 'RIFF'); d.setUint32(4, 36 + pcm.length * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true); d.setUint32(24, 16000, true);
+  d.setUint32(28, 32000, true); d.setUint16(32, 2, true); d.setUint16(34, 16, true); w(36, 'data');
+  d.setUint32(40, pcm.length * 2, true); new Int16Array(buf, 44).set(pcm);
+  return new Blob([buf], {type: 'audio/wav'});
+}
+async function stopRec() {
+  const r = rec; rec = null;
+  r.proc.disconnect(); r.src.disconnect(); r.stream.getTracks().forEach(t => t.stop()); await r.ctx.close();
+  $('mic').className = 'busy'; $('mic').textContent = '…'; $('mic').disabled = true;
+  try {
+    const resp = await fetch('/api/voice', {method: 'POST', headers: {'Content-Type': 'audio/wav'}, body: toWav16k(r.chunks, r.rate)});
+    const res = await resp.json();
+    if (!resp.ok) addLine('error', '[voice] ' + (res.error || resp.statusText));
+    else if (res.text) {  // put it in the box for the user to check, edit and send (Enter)
+      $('cmd').value = res.text;
+      $('cmd').focus();
+      $('cmd').setSelectionRange(res.text.length, res.text.length);
+    }
+  } finally {
+    $('mic').className = ''; $('mic').textContent = '🎤'; $('mic').disabled = false;
+  }
+}
+$('mic').onclick = () => (rec ? stopRec() : startRec()).catch(e => {
+  addLine('error', '[voice] ' + e.message); rec = null; $('mic').className = ''; $('mic').textContent = '🎤';
+});
+
 nextFrame();
 poll();
 </script>
