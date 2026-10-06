@@ -53,7 +53,7 @@ def _actions(node):
     return {
         'reset': (True, node.reset_scene),
         'home': (True, home),
-        'spawn_person': (False, lambda: node.run_tool('spawn_person')),
+        'spawn_person': (False, lambda: node.run_tool('spawn_person')),  # Bob
         'remove_person': (False, lambda: node.run_tool('spawn_person', '--remove')),
         'safety_on': (False, safety(True)),
         'safety_off': (False, safety(False)),
@@ -93,7 +93,7 @@ def _handler(node):
                     'busy': node.busy.is_set(), 'queued': node.commands.qsize(),
                     'model': node.planner.model, 'dry_run': node.dry_run,
                     'camera': node.monitor is not None, 'safety': node.safety_enabled,
-                    'voice': node.voice is not None,
+                    'voice': node.voice is not None, 'tts': node.speaker is not None,
                     'safety_prompt': node.monitor.prompt if node.monitor else None,
                     'default_safety_prompt': node.monitor.default_prompt if node.monitor else None,
                     'verdict': node.last_verdict and dict(  # age computed here: browser clocks may differ
@@ -103,6 +103,14 @@ def _handler(node):
             if url.path == '/api/camera.jpg':
                 jpg, _ = node.monitor.latest_jpeg(width=640) if node.monitor else (None, None)
                 return self._send(200, jpg, 'image/jpeg') if jpg else self._send(503, {'error': 'no camera image'})
+            if url.path == '/api/tts':
+                text = parse_qs(url.query).get('text', [''])[0].strip()
+                if node.speaker is None or not text:
+                    return self._send(404, {'error': 'no TTS voice available'})
+                try:
+                    return self._send(200, node.speaker.synth(text), 'audio/wav')
+                except Exception as e:
+                    return self._send(500, {'error': str(e)})
             if url.path == '/api/judged.jpg':
                 jpg = node.monitor.last_judged_jpeg if node.monitor else None
                 return self._send(200, jpg, 'image/jpeg') if jpg else self._send(404, {'error': 'no check yet'})
@@ -160,6 +168,7 @@ def _handler(node):
                 node.say(f'[voice] (nothing heard, {secs:.1f}s)')
                 return self._send(200, {'text': ''})
             # Not sent to the robot: the page puts it in the text box so the user can check and send it.
+            node.say(f'[voice] heard "{text}" ({secs:.1f}s), not sent: check it and press Send')
             return self._send(200, {'text': text, 'seconds': round(secs, 1)})
 
     return Handler

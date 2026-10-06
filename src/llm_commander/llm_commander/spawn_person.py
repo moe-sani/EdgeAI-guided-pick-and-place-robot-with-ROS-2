@@ -1,4 +1,4 @@
-"""Put a simulated person into the robot cell, or remove it again.
+"""Put Bob, a simulated test person, into the robot cell, or remove him again.
 
 Uses Gazebo Fuel's 'Rescue Randy Sitting' (child-sized), sitting on the work table in the robot's path.
 The person has a physics body, so if the robot moves while they are there, it bumps into them and
@@ -23,7 +23,7 @@ from llm_commander.spawn_scene import Spawner, gz_models, gz_remove
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--config', default=None)
-    parser.add_argument('--name', default='Person')
+    parser.add_argument('--name', default='Bob')
     parser.add_argument('--x', type=float, default=None, help='where the person sits (torso), world x [m]')
     parser.add_argument('--y', type=float, default=None, help='where the person sits (torso), world y [m]')
     parser.add_argument('--yaw', type=float, default=None, help='heading in degrees (default: person_spot.yaw_deg)')

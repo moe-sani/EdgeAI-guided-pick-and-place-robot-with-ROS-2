@@ -273,6 +273,34 @@ them, whereas X windows land on the PC's monitor. The user opens it at **http://
 - Don't run two commanders that both subscribe to `/llm_command`: a published command would execute
   twice. Commands from the web or a terminal prompt only go to their own process.
 
+## Phase 5 (2026-10-05/06): voice, Bob, UI tweaks
+
+- **The user's setup:** Firefox **on the robot PC** at `http://localhost:8080`, so the mic works without HTTPS.
+  Sound goes to the HDMI monitor; see the audio fix under Machine facts.
+- **Voice input:** `llm_commander/voice.py` `Transcriber` runs `~/tools/whisper.cpp/build/bin/whisper-cli`
+  (model `ggml-base.en.bin`, 8 threads, about 2–5 s).
+  - The page records with WebAudio, downsamples to a 16 kHz mono WAV, and POSTs it to `/api/voice`.
+  - **The transcript is never sent automatically:** the server only logs `[voice] heard "…", not sent`,
+    and the page puts the text in the box. The user insisted on this.
+  - whisper's `--prompt` hint is a **word list**. A sentence hint got echoed on unclear audio, and
+    looked exactly like the first example command.
+- **Voice output:** `Speaker` runs `~/tools/piper/piper` with `en_GB-alba-medium` (chosen by the user
+  from Lessac, Amy and Alba). `GET /api/tts?text=` returns WAV, with a 50-entry cache. The page queues
+  the clips and never overlaps them; it falls back to speechSynthesis (espeak-ng on Linux, robotic)
+  if `tts` is false.
+- **`--https`** serves a self-signed certificate from `~/.cache/llm_commander/`, needed for the mic
+  from another machine.
+- **GenieX audio input crashed `geniex serve`** (Gemma-4 GGUF with `input_audio` as a data URL). Hence
+  whisper.cpp.
+- **Bob:** the test person is called "Bob" (`spawn_person --name` defaults to `Bob`; buttons
+  **Spawn Bob** and **Remove Bob**).
+- **Other UI changes:** a 50/50 chat/right panel; a generic title "Robot Arm · LLM Commander"; the last
+  safety verdict greyed out while safety is off; an editable safety question (see the safety notes).
+- **Testing tip:** the agent's browser tool runs on the user's Mac, and an insecure LAN origin has no
+  `navigator.mediaDevices`. For tests, inject a fake mic: define `navigator.mediaDevices.getUserMedia`
+  returning `AudioContext.createMediaStreamDestination().stream`, fed from a decoded WAV that's loaded
+  via `page.addScriptTag`. A Piper-generated clip makes a good spoken test input.
+
 ## Ideas for next steps (not started)
 
 - **Several cubes into one destination** (the user deferred this). Right now every cube drops at the

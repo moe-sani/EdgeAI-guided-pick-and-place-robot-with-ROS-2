@@ -66,3 +66,7 @@ voice:
   whisper_bin: ~/tools/whisper.cpp/build/bin/whisper-cli
   whisper_model: ~/tools/whisper.cpp/models/ggml-base.en.bin
   threads: 8
+  # Read-aloud voice ("voice on"): Piper neural TTS, built in ~/tools (see README). If missing, the
+  # browser's own voice is used instead.
+  piper_bin: ~/tools/piper/piper
+  piper_model: ~/tools/piper/voices/en_GB-alba-medium.onnx

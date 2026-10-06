@@ -30,7 +30,7 @@ from llm_commander.llm import LLMPlanner, PlanError
 from llm_commander.robot import RobotSkills, SkillError
 from llm_commander.safety import SafetyMonitor, start_bridge, stop_bridge
 from llm_commander.scene import destinations, load_scene
-from llm_commander.voice import Transcriber
+from llm_commander.voice import Speaker, Transcriber
 from llm_commander.webui import start_web_ui
 
 POSE_TYPE = 'objectpose_msgs/msg/ObjectPose'
@@ -62,6 +62,7 @@ class Commander(Node):
                         if (safety or camera) else None)
         self.safety_enabled = bool(safety)
         self.voice = None  # Transcriber, set by main() when --web and whisper.cpp is available
+        self.speaker = None  # Speaker (Piper TTS), set by main() when --web and Piper is available
 
     # ---------- object pose tracking ----------
     def _discover_objects(self):
@@ -272,6 +273,9 @@ def main():
                 node.voice = t
             else:
                 node.say(f"[voice] Voice input off: whisper.cpp not found at {scene['voice']['whisper_bin']}")
+            sp = Speaker(scene['voice'])
+            if sp.available():
+                node.speaker = sp
         try:
             url = start_web_ui(node, args.host, args.port, https=args.https)
         except OSError as e:

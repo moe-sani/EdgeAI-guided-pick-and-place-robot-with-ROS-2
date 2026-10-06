@@ -180,12 +180,12 @@ On `yes`, the command is refused and the robot doesn't move. Anything other than
 camera image, a stale image, server error, unexpected answer) also counts as risky. The check takes
 about 0.7 s. The commander starts the gz → ROS image bridge for `/safety_camera/image` itself.
 
-To try it, sit a person (Gazebo Fuel's *Rescue Randy Sitting*, child-sized) on the table in the robot's
-path, between the red cube and the blue tray:
+To try it, sit **Bob**, a test person (Gazebo Fuel's *Rescue Randy Sitting*, child-sized), on the table
+in the robot's path, between the red cube and the blue tray:
 
 ```bash
 ros2 run llm_commander commander --safety                 # terminal 3
-ros2 run llm_commander spawn_person                       # terminal 4: person appears (re-run to put them back)
+ros2 run llm_commander spawn_person                       # terminal 4: Bob appears (re-run to put him back)
 ros2 run llm_commander spawn_person --remove              # ...and goes away again
 ros2 run llm_commander spawn_person --x 0.6 --y 0.3 --yaw 90   # somewhere else
 ros2 run llm_commander safety_check --repeat 3            # just ask the VLM, no robot involved
@@ -242,7 +242,7 @@ ros2 run llm_commander commander --web --host 0.0.0.0     # reachable as http://
   - the result of the last safety check (CLEAR/RISK), with the exact frame the VLM judged;
   - the buttons: **Reset scene** (gripper open, robot home, cubes back, and any missing trays,
     cubes or camera re-spawned, which is handy after restarting the sim), **Robot home**,
-    **Check now**, **Spawn person** and **Remove person**.
+    **Check now**, **Spawn Bob** and **Remove Bob**.
 - **Safety check button** (in the safety card, also the `safety ON/OFF` pill at the top right): turns
   the camera check on or off without restarting. It's green when on.
 - **Safety question** (in the safety card): the question asked about each frame. If you clear the box,
@@ -253,7 +253,7 @@ ros2 run llm_commander commander --web --host 0.0.0.0     # reachable as http://
   - The change is logged in the chat, and lasts until the commander restarts.
 
 Commands and the Reset/Home buttons queue up behind the robot's current job, so they never collide.
-The person buttons and **Check now** run immediately. The terminal prompt keeps working alongside the page.
+The Bob buttons and **Check now** run immediately. The terminal prompt keeps working alongside the page.
 
 **Opening it from your own machine:** the default `127.0.0.1` only accepts local connections, so you
 have two options:
@@ -261,8 +261,43 @@ have two options:
 - Start it with `--host 0.0.0.0` and open `http://<robot-PC-IP>:8080`. There's no login, so anyone on
   that network can drive the robot. That's fine on a trusted LAN, but don't expose it further.
 
+### Voice (offline)
+
+- **🎤 Speak a command:** click 🎤, speak, then click ■. The robot PC transcribes it with **whisper.cpp**
+  (about 2–5 s). The text goes into the box, plus a grey `[voice] heard "…", not sent` line. **It is not
+  sent:** check or edit it, then press Send or Enter.
+- **🔊 voice on/off** (top right): reads the robot's replies aloud, plus "Done.", "Failed…", "Safety risk
+  detected." and similar. The robot PC generates the speech with **Piper** (the British *Alba* voice,
+  about 0.7 s per sentence), and the browser plays it. The setting is remembered per browser.
+  - If Piper isn't installed, it falls back to the browser's own voice, which is robotic on Linux.
+
+Browsers only allow the microphone on `https://` or `localhost` pages:
+- On the robot PC itself, `http://localhost:8080` works.
+- From another machine, start with `--https` (self-signed certificate; accept the browser warning once)
+  and open `https://<robot-PC-IP>:8080`, or use VS Code port forwarding.
+
+Both tools run fully offline once installed, outside the repo in `~/tools`. Their paths are in the
+`voice:` section of `scene.yaml`, and without them the 🎤 is hidden:
+
+```bash
+mkdir -p ~/tools && cd ~/tools
+# Speech-to-text: whisper.cpp + English base model (148 MB)
+git clone --depth 1 https://github.com/ggml-org/whisper.cpp && cd whisper.cpp
+cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 8 --config Release
+sh ./models/download-ggml-model.sh base.en && cd ..
+# Text-to-speech: Piper (aarch64 build) + Alba voice (63 MB)
+curl -L https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_aarch64.tar.gz | tar xz
+mkdir -p piper/voices && cd piper/voices
+V=https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_GB/alba/medium/en_GB-alba-medium.onnx
+curl -L -o en_GB-alba-medium.onnx $V && curl -L -o en_GB-alba-medium.onnx.json $V.json
+```
+
 ## Known gotchas
 
+- **No sound on the robot PC (Dragonwing IQ9)**: if apps only see a "Dummy Output", the board's audio
+  card is set to `off`. Fix it once with `pactl set-card-profile alsa_card.platform-sound pro-audio`, then
+  pick the output: `pactl set-default-sink alsa_output.platform-sound.pro-output-2` for the HDMI
+  monitor, or `...pro-output-0` for the board speaker.
 - **Running over SSH**: `env.sh` sends the GUIs to the PC's own monitor (`DISPLAY=:0`). This only
   works while a user is logged in on that desktop. To view it remotely, use VNC or GNOME Remote Desktop.
 - **Homebrew Python**: `~/.bashrc` runs `brew shellenv`, which puts Homebrew's `python3` first.
