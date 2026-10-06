@@ -301,6 +301,31 @@ them, whereas X windows land on the PC's monitor. The user opens it at **http://
   returning `AudioContext.createMediaStreamDestination().stream`, fed from a decoded WAV that's loaded
   via `page.addScriptTag`. A Piper-generated clip makes a good spoken test input.
 
+## demo.sh (2026-10-06)
+
+The user asked for one script to run the whole demo from the robot PC, without several terminals.
+`~/ros2_ws/demo.sh` does that.
+- **What it starts, in order:**
+  1. GenieX (reused if port 18181 already answers), then a 1-token warm-up request.
+  2. The sim: `rviz:=false logo:=<--logo>`. It's ready when `/Robmove` exists and the log says "You can
+     start planning". After 150 s it does **one automatic retry**, because Gazebo sometimes hangs at
+     "starting world".
+  3. `spawn_scene --reset`.
+  4. `commander --web` (plus `--safety`, `--lan`=0.0.0.0, `--https`, `--port`).
+  5. `firefox --new-tab`.
+- **Process groups:** each component is started with `setsid`, so it gets its own process group.
+  Cleanup sends SIGINT, then SIGTERM, then SIGKILL to the **whole group**, which also catches Gazebo's
+  leftover `gz sim` processes that survive `ros2 launch`'s own SIGINT shutdown. Only what the script
+  started is stopped; GenieX is left alone if it was already running.
+- **Watching:** the foreground loop stops everything if a started component dies, e.g. the Gazebo
+  window was closed.
+- **Pitfalls hit while writing it:**
+  - `set -u` must be off while sourcing env.sh, because ROS setup scripts use unset variables.
+  - `start_bg` must not be called inside `$(...)`, since the subshell would lose `STARTED`; it sets
+    `LAST_PG` instead.
+- **Verified:** a cold start (GenieX already up), a real command executed through the web UI, Ctrl+C
+  leaving no leftover processes, `--safety`, and closing the Gazebo GUI triggering auto-shutdown.
+
 ## Ideas for next steps (not started)
 
 - **Several cubes into one destination** (the user deferred this). Right now every cube drops at the

@@ -14,11 +14,37 @@ blue tray."* See [LLM control](#llm-control-local-llm-via-geniex). Optionally, a
 by a local vision-language model refuses commands when a person is in the cell. See
 [Safety camera](#safety-camera-vlm).
 
+## Quick start: one-command demo
+
+On the robot PC (in a terminal on its own desktop):
+
+```bash
+~/ros2_ws/demo.sh
+```
+
+It starts the LLM server (GenieX), the simulation (Gazebo + MoveIt, no RViz), the scene (trays, cubes,
+safety camera) and the web UI, then opens **http://localhost:8080** in Firefox. It takes about a minute.
+**Ctrl+C** in that terminal stops everything it started. Closing the Gazebo window also stops the
+demo. Anything that was already running, like GenieX, is reused and left alone.
+
+| Option | Effect |
+|---|---|
+| `--safety` | start with the camera safety check on |
+| `--logo` | show the ABB logo on the robot |
+| `--lan` | let other machines open the web UI at `http://<robot-PC-IP>:8080` |
+| `--https` | HTTPS web UI (needed for the microphone from another machine) |
+| `--no-browser` | don't open Firefox |
+| `--port N` | web UI port (default 8080) |
+
+Logs go to `~/ros2_ws/log/demo/`. If Gazebo hangs while starting (it occasionally does), the script retries once.
+The sections below explain the individual pieces.
+
 ## Repository layout
 
 | Path | Purpose |
 |---|---|
 | `ros2_ws.repos` | Upstream source repos pinned to the verified commits |
+| `demo.sh` | One-command demo launcher (see Quick start) |
 | `env.sh` | Environment setup. **Always** `source` it before using the workspace. From SSH terminals it also points GUIs at the PC's logged-in desktop (`DISPLAY=:0`) |
 | `AGENT_HANDOFF.md` | Detailed notes and gotchas for continuing the work (human or AI agent) |
 | `src/llm_commander/` | **Our package**: natural-language control via a local LLM, plus the coloured-tray scene |
