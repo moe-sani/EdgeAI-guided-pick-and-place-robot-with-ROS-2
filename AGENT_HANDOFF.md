@@ -60,11 +60,41 @@ them, whereas X windows land on the PC's monitor. The user opens it at **http://
   AI or agent name as author or committer, and never add `Co-authored-by` trailers.
 - `~/ros2_ws` is a git repo (the user pushes it to their GitHub). Upstream clones in `src/*` are
   git-ignored and pinned in `ros2_ws.repos`. `src/llm_commander` is ours and committed.
-  No upstream code has been modified.
+  **Upstream is modified only through `patches/*.patch`**, applied by `./apply_patches.sh` (idempotent;
+  tested on a clean checkout at the pinned commit). Currently there's one patch, for
+  ros2_SimRealRobotControl, added on 2026-10-05 at the user's request:
+  - **`logo:=true|false`** (default **false** = hidden; the user asked for a flag on 2026-10-06).
+    The logo is geometry with its own red material (`Material_9`) in the IRB-120 visual meshes
+    `link_3.dae` and `link_4.dae`. With the logo hidden, `HideABBLogo()` in moveit2.launch.py writes
+    copies to `~/.cache/ros2srrc/irb120_nologo/` whose `Material_9` gets the body's diffuse and
+    emission (`Material_3`); a faint raised outline remains. The copies are regenerated if the
+    originals are newer. It then rewrites those two mesh URIs in `robot_description`, which covers
+    Gazebo, RViz and robot_state_publisher. The original meshes are untouched, the geometry and
+    collision meshes are unchanged, and the patch stays small. Verified in the sim both ways, by
+    the camera frame and the robot_description mesh paths. Only `moveit2.launch.py` has the flag;
+    `gazebo/simulation.launch.py` doesn't.
+  - **`rviz:=false`** in `ros2srrc_launch/moveit2/moveit2.launch.py` (it defaults to on, as upstream).
+    Verified: no rviz2 process, with move_group, 4 controllers and the `/Move` and `/Robmove`
+    actions still up. The user doesn't use RViz.
+  - To change a patch: edit the upstream clone, then
+    `git -C src/ros2_SimRealRobotControl diff > patches/ros2_SimRealRobotControl.patch`.
 
 ## Machine facts
 
 - Ubuntu 24.04 on **aarch64 (Snapdragon)**, ROS 2 Jazzy at `/opt/ros/jazzy`, 8 cores, 34 GB RAM, passwordless sudo.
+- **Board: Qualcomm Dragonwing IQ9** (sa8775p / QCS9100, ALSA card `LEMANS-EVK`). **Audio fix (2026-10-06):**
+  PipeWire offered no real output (only "Dummy Output"). The board card only offers the `pro-audio`
+  profile, because ACP doesn't use the installed UCM, and WirePlumber never auto-selects `pro-audio`, so
+  the card stayed `off`. The hardware is fine (speaker-test on `hw:0,0` and `hw:0,2` both audible).
+  - Fixed with `pactl set-card-profile alsa_card.platform-sound pro-audio`. WirePlumber remembers it in
+    `~/.local/state/wireplumber/default-profile`.
+  - Sinks: `pro-output-0` = board speaker, `pro-output-2` = DP/HDMI monitor, which is the **default**
+    (the user's choice).
+  - The default source was restored to the Creative webcam mic. Enabling the profile had switched it
+    to the board's `pro-input-1`.
+  - Undo: `pactl set-card-profile alsa_card.platform-sound off`.
+  - The user runs the web UI in **Firefox on the robot PC** (`http://localhost:8080`, so the mic is
+    allowed without HTTPS). Firefox's speechSynthesis there uses speech-dispatcher with espeak-ng.
 - GNOME **Wayland** desktop. `env.sh` sets `DISPLAY=:0`, `XAUTHORITY` (a glob on
   `/run/user/1000/.mutter-Xwaylandauth.*`, because the name changes every login) and `XDG_RUNTIME_DIR`
   when `DISPLAY` is empty, so GUIs launched from SSH or VS Code terminals appear on the PC's monitor.
@@ -132,6 +162,13 @@ them, whereas X windows land on the PC's monitor. The user opens it at **http://
     1 s, has a worker queue, an interactive prompt (when stdin is a TTY), a single-command CLI mode,
     `/llm_command` in, `/llm_response` out, `--dry-run`, and `--safety` (a camera check at command start,
     *before* planning, so a refusal isn't preceded by the LLM's past-tense reply).
+  - **Safety prompt is changeable** (added 2026-10-05). `SafetyMonitor.prompt` is the question in use;
+    `default_prompt` comes from `safety.prompt` in scene.yaml, or `SAFETY_PROMPT` if that's empty.
+    - Web: `POST /api/safety_prompt {"text"}` (`""` = default). It returns **409 while
+      `safety_enabled`**; the user asked that it only be changeable with safety off.
+    - The page shows the default as the textarea placeholder and doesn't overwrite text the user
+      is typing. Its logic was tested with a Node DOM-stub test (10 checks).
+    - `safety_check --prompt "..."` tries a question from the CLI. Changes are in-memory only.
   - `llm_commander/safety.py`: `SafetyMonitor` subscribes to `/safety_camera/image`, downsizes the
     latest frame to 640 px JPEG, and asks the VLM a yes/no question (`max_tokens=5`). It is
     **fail-safe**: no frame, a frame older than 2 s, a server error or a non-yes/no answer all count as
@@ -235,6 +272,59 @@ them, whereas X windows land on the PC's monitor. The user opens it at **http://
 - Verdict "age" is computed server-side, so it doesn't depend on the browser machine's clock.
 - Don't run two commanders that both subscribe to `/llm_command`: a published command would execute
   twice. Commands from the web or a terminal prompt only go to their own process.
+
+## Phase 5 (2026-10-05/06): voice, Bob, UI tweaks
+
+- **The user's setup:** Firefox **on the robot PC** at `http://localhost:8080`, so the mic works without HTTPS.
+  Sound goes to the HDMI monitor; see the audio fix under Machine facts.
+- **Voice input:** `llm_commander/voice.py` `Transcriber` runs `~/tools/whisper.cpp/build/bin/whisper-cli`
+  (model `ggml-base.en.bin`, 8 threads, about 2–5 s).
+  - The page records with WebAudio, downsamples to a 16 kHz mono WAV, and POSTs it to `/api/voice`.
+  - **The transcript is never sent automatically:** the server only logs `[voice] heard "…", not sent`,
+    and the page puts the text in the box. The user insisted on this.
+  - whisper's `--prompt` hint is a **word list**. A sentence hint got echoed on unclear audio, and
+    looked exactly like the first example command.
+- **Voice output:** `Speaker` runs `~/tools/piper/piper` with `en_GB-alba-medium` (chosen by the user
+  from Lessac, Amy and Alba). `GET /api/tts?text=` returns WAV, with a 50-entry cache. The page queues
+  the clips and never overlaps them; it falls back to speechSynthesis (espeak-ng on Linux, robotic)
+  if `tts` is false.
+- **`--https`** serves a self-signed certificate from `~/.cache/llm_commander/`, needed for the mic
+  from another machine.
+- **GenieX audio input crashed `geniex serve`** (Gemma-4 GGUF with `input_audio` as a data URL). Hence
+  whisper.cpp.
+- **Bob:** the test person is called "Bob" (`spawn_person --name` defaults to `Bob`; buttons
+  **Spawn Bob** and **Remove Bob**).
+- **Other UI changes:** a 50/50 chat/right panel; a generic title "Robot Arm · LLM Commander"; the last
+  safety verdict greyed out while safety is off; an editable safety question (see the safety notes).
+- **Testing tip:** the agent's browser tool runs on the user's Mac, and an insecure LAN origin has no
+  `navigator.mediaDevices`. For tests, inject a fake mic: define `navigator.mediaDevices.getUserMedia`
+  returning `AudioContext.createMediaStreamDestination().stream`, fed from a decoded WAV that's loaded
+  via `page.addScriptTag`. A Piper-generated clip makes a good spoken test input.
+
+## demo.sh (2026-10-06)
+
+The user asked for one script to run the whole demo from the robot PC, without several terminals.
+`~/ros2_ws/demo.sh` does that.
+- **What it starts, in order:**
+  1. GenieX (reused if port 18181 already answers), then a 1-token warm-up request.
+  2. The sim: `rviz:=false logo:=<--logo>`. It's ready when `/Robmove` exists and the log says "You can
+     start planning". After 150 s it does **one automatic retry**, because Gazebo sometimes hangs at
+     "starting world".
+  3. `spawn_scene --reset`.
+  4. `commander --web` (plus `--safety`, `--lan`=0.0.0.0, `--https`, `--port`).
+  5. `firefox --new-tab`.
+- **Process groups:** each component is started with `setsid`, so it gets its own process group.
+  Cleanup sends SIGINT, then SIGTERM, then SIGKILL to the **whole group**, which also catches Gazebo's
+  leftover `gz sim` processes that survive `ros2 launch`'s own SIGINT shutdown. Only what the script
+  started is stopped; GenieX is left alone if it was already running.
+- **Watching:** the foreground loop stops everything if a started component dies, e.g. the Gazebo
+  window was closed.
+- **Pitfalls hit while writing it:**
+  - `set -u` must be off while sourcing env.sh, because ROS setup scripts use unset variables.
+  - `start_bg` must not be called inside `$(...)`, since the subshell would lose `STARTED`; it sets
+    `LAST_PG` instead.
+- **Verified:** a cold start (GenieX already up), a real command executed through the web UI, Ctrl+C
+  leaving no leftover processes, `--safety`, and closing the Gazebo GUI triggering auto-shutdown.
 
 ## Ideas for next steps (not started)
 

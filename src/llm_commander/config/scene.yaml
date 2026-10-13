@@ -57,3 +57,16 @@ safety:
   max_image_age_s: 2.0      # refuse to judge from a stale frame
   image_width: 640          # frames are downscaled before being sent to the VLM
   save_frame: /tmp/llm_commander_safety.jpg   # last frame the VLM judged (for debugging)
+  # Question asked with every frame; the answer must start with yes (= risky) or no.
+  # Leave empty to use the built-in default; it can also be changed in the web UI (while safety is off).
+  prompt: ""
+
+# Offline voice commands in the web UI (whisper.cpp, built in ~/tools; see README).
+voice:
+  whisper_bin: ~/tools/whisper.cpp/build/bin/whisper-cli
+  whisper_model: ~/tools/whisper.cpp/models/ggml-base.en.bin
+  threads: 8
+  # Read-aloud voice ("voice on"): Piper neural TTS, built in ~/tools (see README). If missing, the
+  # browser's own voice is used instead.
+  piper_bin: ~/tools/piper/piper
+  piper_model: ~/tools/piper/voices/en_GB-alba-medium.onnx

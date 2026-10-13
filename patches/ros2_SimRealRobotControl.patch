@@ -1,0 +1,67 @@
+diff --git a/ros2srrc_launch/moveit2/moveit2.launch.py b/ros2srrc_launch/moveit2/moveit2.launch.py
+index 7a50eed..5210472 100644
+--- a/ros2srrc_launch/moveit2/moveit2.launch.py
++++ b/ros2srrc_launch/moveit2/moveit2.launch.py
+@@ -71,6 +71,31 @@ def AssignArgument(ARGUMENT):
+             ARG = y.replace((ARGUMENT + ":="),"")
+             return(ARG)
+ 
++# HIDE THE ABB LOGO (logo:=false): use copies of the IRB-120 link_3/link_4 visual meshes whose
++# red logo material (Material_9) gets the body colour (Material_3). Geometry is unchanged.
++def HideABBLogo(urdf_xml):
++    import re
++    src_dir = os.path.join(get_package_share_directory("ros2srrc_robots"), "irb120", "meshes", "visual")
++    out_dir = os.path.join(os.path.expanduser("~"), ".cache", "ros2srrc", "irb120_nologo")
++    os.makedirs(out_dir, exist_ok=True)
++    for name in ("link_3", "link_4"):
++        src, dst = os.path.join(src_dir, name + ".dae"), os.path.join(out_dir, name + ".dae")
++        if not os.path.exists(dst) or os.path.getmtime(dst) < os.path.getmtime(src):
++            mesh = open(src).read()
++            logo = re.search(r'<effect id="Material_9-effect">.*?</effect>', mesh, re.S)
++            body = re.search(r'<effect id="Material_3-effect">.*?</effect>', mesh, re.S)
++            if not (logo and body):
++                continue
++            new = logo.group(0)
++            for sid in ("emission", "diffuse"):
++                colour = r'<color sid="%s">([^<]+)</color>' % sid
++                new = re.sub(colour, '<color sid="%s">%s</color>' % (sid, re.search(colour, body.group(0)).group(1)), new)
++            tmp = dst + ".%d.tmp" % os.getpid()
++            open(tmp, "w").write(mesh.replace(logo.group(0), new))
++            os.replace(tmp, dst)
++        urdf_xml = re.sub(r'file://[^"\s]*/irb120/meshes/visual/%s\.dae' % name, "file://" + dst, urdf_xml)
++    return urdf_xml
++
+ # GET CONFIGURATION from YAML:
+ def GetCONFIG(CONFIGURATION, PKG_PATH):
+     
+@@ -133,6 +158,11 @@ def EEctrlEXISTS(EEName):
+ def generate_launch_description():
+ 
+     LD = LaunchDescription()
++
++    # === INPUT ARGUMENT: RVIZ (optional, rviz:=false to skip the RViz window) === #
++    RVIZ = str(AssignArgument("rviz")).lower() not in ("false", "0", "no")
++    # === INPUT ARGUMENT: LOGO (optional, logo:=true shows the ABB logo; hidden by default) === #
++    LOGO = str(AssignArgument("logo")).lower() in ("true", "1", "yes")
+     
+     # === INPUT ARGUMENT: ROS 2 PACKAGE === #
+     PACKAGE_NAME = AssignArgument("package")
+@@ -225,6 +255,8 @@ def generate_launch_description():
+             EE = "true-NOctr"
+     
+     robot_description_config = doc.toxml()
++    if not LOGO:
++        robot_description_config = HideABBLogo(robot_description_config)
+     robot_description = {'robot_description': robot_description_config}
+ 
+     # ROBOT STATE PUBLISHER NODE:
+@@ -577,8 +609,7 @@ def generate_launch_description():
+                 # MoveIt!2:
+                 TimerAction(
+                     period=2.0,
+-                    actions=[
+-                        rviz_node_full,
++                    actions=([rviz_node_full] if RVIZ else []) + [
+                         run_move_group_node,
+                     ]
+                 ),
