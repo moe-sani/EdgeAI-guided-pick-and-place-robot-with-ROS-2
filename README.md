@@ -1,4 +1,4 @@
-# ROS 2 Jazzy – Simulated ABB IRB-120 Pick-and-Place
+# Local LLM and VLM controlling a Simulated Robot Arm doing Pick-and-Place 
 
 A simulated ABB IRB-120 with a Schunk EGP-64 gripper does a cube pick-and-place in
 **Gazebo Harmonic**. The robot is driven by **MoveIt 2** on **ROS 2 Jazzy** (Ubuntu 24.04).
