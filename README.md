@@ -14,6 +14,23 @@ blue tray."* See [LLM control](#llm-control-local-llm-via-geniex). Optionally, a
 by a local vision-language model refuses commands when a person is in the cell. See
 [Safety camera](#safety-camera-vlm).
 
+![The Gazebo robot cell beside the local web UI, showing Bob in the camera view and a refused command](assets/local_vlm_safety.png)
+
+*Running on a Qualcomm Dragonwing IQ9: the simulated arm on the left, with chat, camera images,
+and the VLM's verdict on the right.*
+
+[Watch the demo](https://www.youtube.com/shorts/3_KHg4WfuSY) ·
+[Read the blog post](https://moesani.com/blog/when-should-an-industrial-robot-refuse-to-move/) ·
+[Arduino Project Hub article](docs/arduino-project-hub.md)
+
+## Architecture
+
+![Local command flow through the camera check, language planning, validation, robot control, and Gazebo pose feedback](assets/architecture.png)
+
+*With the optional check enabled, the camera verdict comes before language planning. Both AI calls
+use the same local model; robot coordinates come from the scene. This is a check at command start,
+not continuous monitoring. [Editable diagram](assets/architecture.svg).*
+
 ## Quick start: one-command demo
 
 On the robot PC (in a terminal on its own desktop):
@@ -111,7 +128,13 @@ For single moves, you can send `/Move` or `/Robmove` actions directly. See the u
 ## LLM control (local LLM via GenieX)
 
 The `llm_commander` package turns commands like *"Pick up the red cube and place it in the blue tray"*
-into robot motions. It works like this:
+into robot motions.
+
+![The simulated robot carrying out a blue-cube command through the local language interface](assets/llm_pick%20up%20blue%20cube.gif)
+
+*A recorded run of the local language interface and simulated arm.*
+
+It works like this:
 
 1. The node sees which cubes exist from their live `/<Name>/ObjectPose` topics in Gazebo.
 2. It sends the command, plus the list of objects and destinations, to a local LLM through GenieX's
@@ -192,6 +215,13 @@ for things that don't exist (e.g. "the yellow cube") or aren't robot tasks are p
   "Pick up X" followed by "put it in…" should be done promptly.
 
 ## Safety camera (VLM)
+
+| Camera check disabled | Camera check enabled |
+|---|---|
+| ![The simulated arm colliding with Bob while the camera check is disabled](assets/robot%20hits%20bob.gif) | ![Bob in the simulated cell with the camera check enabled](assets/bob%20falls%20but%20safety%20is%20on.gif) |
+| The arm can collide with Bob in the simulation. | A command submitted with Bob in view can be refused before motion. |
+
+*The comparison demonstrates a check at command start; it does not show a stop triggered during motion.*
 
 With `--safety`, every command starts with a camera check before the LLM plans and before the robot
 moves. The latest SafetyCamera frame goes to the same VLM with the question:

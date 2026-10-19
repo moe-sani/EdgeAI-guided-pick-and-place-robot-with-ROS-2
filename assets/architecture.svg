@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1340" viewBox="0 0 1800 1340" role="img" aria-labelledby="title desc">
+<title id="title">Local AI robot command architecture</title>
+<desc id="desc">With safety enabled, a command passes through a camera check, language planning, plan validation, robot skills and motion control. The same local Qwen3-VL model serves both AI calls. Gazebo supplies camera frames and object pose feedback. A risky check refuses the command before planning. The check runs once at command start.</desc>
+<rect width="1800" height="1340" fill="white"/>
+<text x="60" y="88.4" font-family="Arial, Helvetica, sans-serif" font-size="53" font-weight="700" fill="#182d40" text-anchor="start">From a request to a verified move</text>
+<text x="60" y="134.6" font-family="Arial, Helvetica, sans-serif" font-size="27" font-weight="400" fill="#526678" text-anchor="start">Dragonwing IQ9  /  ROS 2 Jazzy  /  Gazebo Harmonic</text>
+<rect x="34" y="178" width="1732" height="1067" rx="24" fill="#f5f8fa" stroke="#d5dfe6" stroke-width="1.5"/>
+<text x="62" y="219.0" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#526678" text-anchor="start">LOCAL EXECUTION  /  CAMERA CHECK ENABLED</text>
+<rect x="590" y="241" width="640" height="146" rx="18" fill="#f0ebf9" stroke="#bfaedb" stroke-width="1.5"/>
+<text x="620" y="277.8" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#7050aa" text-anchor="start">ONE SHARED MODEL  ·  NPU INFERENCE</text>
+<text x="620" y="328.2" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700" fill="#182d40" text-anchor="start">Qwen3-VL-4B via GenieX</text>
+<text x="620" y="369.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">Local API: 127.0.0.1:18181</text>
+<polyline points="710,387 710,440 515,440 515,550" fill="none" stroke="#7050aa" stroke-width="4" stroke-linejoin="round" stroke-dasharray="11 9"/>
+<polygon points="515,550 522.0,535.0 508.0,535.0" fill="#7050aa"/>
+<polygon points="710,387 703.0,402.0 717.0,402.0" fill="#7050aa"/>
+<text x="542" y="499.4" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="400" fill="#7050aa" text-anchor="start">Image → yes / no</text>
+<polyline points="1060,387 1060,464 890,464 890,550" fill="none" stroke="#7050aa" stroke-width="4" stroke-linejoin="round" stroke-dasharray="11 9"/>
+<polygon points="890,550 897.0,535.0 883.0,535.0" fill="#7050aa"/>
+<polygon points="1060,387 1053.0,402.0 1067.0,402.0" fill="#7050aa"/>
+<text x="926" y="513.4" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="400" fill="#7050aa" text-anchor="start">Text → JSON</text>
+<rect x="60" y="550" width="260" height="170" rx="18" fill="#ffffff" stroke="#d5dfe6" stroke-width="1.5"/>
+<text x="82" y="585.0" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#007e83" text-anchor="start">01 / INPUT</text>
+<text x="82" y="624.8" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" fill="#182d40" text-anchor="start">Command queue</text>
+<text x="82" y="666.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">Browser, terminal,</text>
+<text x="82" y="697.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">or /llm_command</text>
+<rect x="365" y="550" width="300" height="170" rx="18" fill="#ffffff" stroke="#d5dfe6" stroke-width="1.5"/>
+<text x="387" y="585.0" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#007e83" text-anchor="start">02 / CHECK</text>
+<text x="387" y="627.2" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="700" fill="#182d40" text-anchor="start">Camera verdict</text>
+<text x="387" y="665.2" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="400" fill="#526678" text-anchor="start">Once at command start</text>
+<text x="387" y="697.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">Clear → continue</text>
+<rect x="710" y="550" width="360" height="170" rx="18" fill="#ffffff" stroke="#d5dfe6" stroke-width="1.5"/>
+<text x="732" y="585.0" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#007e83" text-anchor="start">03 / PLAN + VALIDATE</text>
+<text x="732" y="627.2" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="700" fill="#182d40" text-anchor="start">Named actions only</text>
+<text x="732" y="666.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">Check names + holding</text>
+<text x="732" y="697.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">Invalid plan → refuse</text>
+<rect x="1115" y="550" width="300" height="170" rx="18" fill="#ffffff" stroke="#d5dfe6" stroke-width="1.5"/>
+<text x="1137" y="585.0" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#007e83" text-anchor="start">04 / EXECUTE</text>
+<text x="1137" y="627.2" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="700" fill="#182d40" text-anchor="start">Robot skills</text>
+<text x="1137" y="666.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">Pick · place · home</text>
+<text x="1137" y="697.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">/Robmove + /Move</text>
+<rect x="1460" y="550" width="280" height="170" rx="18" fill="#ffffff" stroke="#d5dfe6" stroke-width="1.5"/>
+<text x="1482" y="585.0" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#007e83" text-anchor="start">05 / MOTION</text>
+<text x="1482" y="627.2" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="700" fill="#182d40" text-anchor="start">MoveIt 2</text>
+<text x="1482" y="666.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">ros2_control</text>
+<text x="1482" y="697.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">Arm + gripper</text>
+<polyline points="320,631 365,631" fill="none" stroke="#007e83" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="365,631 350.0,624.0 350.0,638.0" fill="#007e83"/>
+<polyline points="665,631 710,631" fill="none" stroke="#007e83" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="710,631 695.0,624.0 695.0,638.0" fill="#007e83"/>
+<polyline points="1070,631 1115,631" fill="none" stroke="#007e83" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="1115,631 1100.0,624.0 1100.0,638.0" fill="#007e83"/>
+<polyline points="1415,631 1460,631" fill="none" stroke="#007e83" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="1460,631 1445.0,624.0 1445.0,638.0" fill="#007e83"/>
+<polyline points="515,720 515,791" fill="none" stroke="#b5404a" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="515,791 522.0,776.0 508.0,776.0" fill="#b5404a"/>
+<rect x="365" y="791" width="300" height="99" rx="18" fill="#fbecef" stroke="#d5a3aa" stroke-width="1.5"/>
+<text x="387" y="828.4" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="700" fill="#b5404a" text-anchor="start">REFUSE COMMAND</text>
+<text x="387" y="868.4" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="400" fill="#b5404a" text-anchor="start">Risk / stale frame / error</text>
+<polyline points="1600,720 1600,970" fill="none" stroke="#007e83" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="1600,970 1607.0,955.0 1593.0,955.0" fill="#007e83"/>
+<text x="1400" y="838.2" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="400" fill="#007e83" text-anchor="start">Planned motion</text>
+<rect x="60" y="970" width="605" height="170" rx="18" fill="#eff6fb" stroke="#d5dfe6" stroke-width="1.5"/>
+<text x="82" y="1005.0" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#2969a2" text-anchor="start">CAMERA INPUT</text>
+<text x="82" y="1047.2" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="700" fill="#182d40" text-anchor="start">SafetyCamera → ROS image bridge</text>
+<text x="82" y="1086.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">/safety_camera/image · 800 × 600 at 5 Hz</text>
+<text x="82" y="1117.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">Fresh frame resized to 640 px for the model</text>
+<rect x="710" y="970" width="360" height="170" rx="18" fill="#eff6fb" stroke="#d5dfe6" stroke-width="1.5"/>
+<text x="732" y="1005.0" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#2969a2" text-anchor="start">POSE FEEDBACK</text>
+<text x="732" y="1044.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="700" fill="#182d40" text-anchor="start">Live coordinates + checks</text>
+<text x="732" y="1086.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">Verify lift + placement</text>
+<text x="732" y="1117.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">Failure → skip later steps</text>
+<rect x="1115" y="970" width="625" height="170" rx="18" fill="#eff6fb" stroke="#d5dfe6" stroke-width="1.5"/>
+<text x="1137" y="1005.0" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#2969a2" text-anchor="start">SIMULATION</text>
+<text x="1137" y="1047.2" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="700" fill="#182d40" text-anchor="start">Gazebo Harmonic</text>
+<text x="1137" y="1086.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">ABB IRB-120 + Schunk EGP-64</text>
+<text x="1137" y="1117.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">Cubes, trays, camera, and Bob</text>
+<polyline points="1115,1055 1070,1055" fill="none" stroke="#2969a2" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="1070,1055 1085.0,1062.0 1085.0,1048.0" fill="#2969a2"/>
+<polyline points="890,970 890,914 1265,914 1265,720" fill="none" stroke="#2969a2" stroke-width="4" stroke-linejoin="round" stroke-dasharray="11 9"/>
+<polygon points="1265,720 1258.0,735.0 1272.0,735.0" fill="#2969a2"/>
+<text x="902" y="891.2" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="400" fill="#2969a2" text-anchor="start">Live poses → skills</text>
+<polyline points="365,970 365,932 342,932 342,683 365,683" fill="none" stroke="#2969a2" stroke-width="4" stroke-linejoin="round" stroke-dasharray="11 9"/>
+<polygon points="365,683 350.0,676.0 350.0,690.0" fill="#2969a2"/>
+<polyline points="1428,1140 1428,1200 361,1200 361,1140" fill="none" stroke="#2969a2" stroke-width="4" stroke-linejoin="round" stroke-dasharray="11 9"/>
+<polygon points="361,1140 354.0,1155.0 368.0,1155.0" fill="#2969a2"/>
+<text x="722" y="1181.2" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="400" fill="#2969a2" text-anchor="start">Simulated camera frames</text>
+<text x="63" y="1293.8" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#007e83" text-anchor="start">CHECK SCOPE</text>
+<text x="245" y="1294.0" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="400" fill="#526678" text-anchor="start">Language commands only; no monitoring during motion. UI Reset / Home bypass this check.</text>
+</svg>
