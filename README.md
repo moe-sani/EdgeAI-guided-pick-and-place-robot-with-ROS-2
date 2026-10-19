@@ -367,3 +367,10 @@ curl -L -o en_GB-alba-medium.onnx $V && curl -L -o en_GB-alba-medium.onnx.json $
 - Harmless log noise: "No 3D sensor plugin(s) defined for octomap updates",
   "/recognize_objects not available", "Publisher already registered", and segfaults
   (exit -11) on shutdown.
+
+## License
+
+Copyright 2026 Moe Sani.
+
+This project is licensed under the [Apache License 2.0](LICENSE).
+Third-party code, models, and assets retain their respective licenses.
