@@ -7,3 +7,4 @@ src/*
 !src/llm_commander/
 __pycache__/
 *.pyc
+.DS_Store
