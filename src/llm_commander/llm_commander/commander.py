@@ -3,7 +3,10 @@
 Commands come from the interactive prompt (when run in a terminal) or the /llm_command topic
 (std_msgs/String). Progress and results are printed and published on /llm_response.
 
-Usage:  ros2 run llm_commander commander [--web] [--safety] [--config scene.yaml] [--model NAME] [--url URL] [--dry-run]
+Usage:  ros2 run llm_commander commander [--web] [--safety] [--real] [--config scene.yaml] [--model NAME] [--url URL] [--dry-run]
+
+--real: driving the real SO-101 (so101_cell real.launch.py), not Gazebo: no scene spawning, Reset only
+sends the robot home and opens the gripper (put the cubes back by hand).
 
 --web: also serve a browser UI (chat, live camera, scene buttons) on http://localhost:8080.
 
@@ -20,7 +23,7 @@ import threading
 import time
 
 import rclpy
-from objectpose_msgs.msg import ObjectPose
+from geometry_msgs.msg import PoseStamped
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -33,14 +36,15 @@ from llm_commander.scene import destinations, load_scene
 from llm_commander.voice import Speaker, Transcriber
 from llm_commander.webui import start_web_ui
 
-POSE_TYPE = 'objectpose_msgs/msg/ObjectPose'
+POSE_TYPE = 'geometry_msgs/msg/PoseStamped'
+POSE_PREFIX = '/object_pose/'
 POSE_MAX_AGE_S = 2.0
 
 
 class Commander(Node):
-    def __init__(self, scene, planner, dry_run=False, safety=False, camera=False):
+    def __init__(self, scene, planner, dry_run=False, safety=False, camera=False, real=False):
         super().__init__('llm_commander')
-        self.scene, self.planner, self.dry_run = scene, planner, dry_run
+        self.scene, self.planner, self.dry_run, self.real = scene, planner, dry_run, real
         self.dests = destinations(scene)
         self.cb = ReentrantCallbackGroup()
         self.poses, self.pose_stamp, self._pose_subs = {}, {}, {}
@@ -67,21 +71,31 @@ class Commander(Node):
     # ---------- object pose tracking ----------
     def _discover_objects(self):
         for topic, types in self.get_topic_names_and_types():
-            if POSE_TYPE in types and topic not in self._pose_subs:
+            if topic.startswith(POSE_PREFIX) and POSE_TYPE in types and topic not in self._pose_subs:
+                name = topic[len(POSE_PREFIX):]
                 self._pose_subs[topic] = self.create_subscription(
-                    ObjectPose, topic, self._on_pose, 10, callback_group=self.cb)
+                    PoseStamped, topic, lambda msg, name=name: self._on_pose(name, msg), 10, callback_group=self.cb)
 
-    def _on_pose(self, msg):
+    def _on_pose(self, name, msg):
         with self.lock:
-            self.poses[msg.objectname] = msg
-            self.pose_stamp[msg.objectname] = time.monotonic()
+            self.poses[name] = msg.pose
+            self.pose_stamp[name] = time.monotonic()
 
-    def get_pose(self, name):
-        time.sleep(0.3)  # let a fresh pose arrive after the robot stops
-        with self.lock:
-            if time.monotonic() - self.pose_stamp.get(name, 0.0) > POSE_MAX_AGE_S:
-                return None
-            return self.poses.get(name)
+    def get_pose(self, name, since=None):
+        """Latest pose of ``name``; with ``since`` (time.monotonic()), only one received after it."""
+        if since is None:
+            time.sleep(0.3)  # let a fresh pose arrive after the robot stops
+            with self.lock:
+                if time.monotonic() - self.pose_stamp.get(name, 0.0) > POSE_MAX_AGE_S:
+                    return None
+                return self.poses.get(name)
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            with self.lock:
+                if self.pose_stamp.get(name, 0.0) > since:
+                    return self.poses[name]
+            time.sleep(0.05)
+        return None
 
     def live_objects(self):
         return sorted(self.all_poses())
@@ -90,7 +104,8 @@ class Commander(Node):
         now = time.monotonic()
         with self.lock:
             return {n: p for n, p in self.poses.items()
-                    if now - self.pose_stamp[n] < POSE_MAX_AGE_S and n not in self.dests}
+                    if now - self.pose_stamp[n] < POSE_MAX_AGE_S and n not in self.dests
+                    and n != self.scene['camera']['name']}
 
     # ---------- command handling ----------
     @staticmethod
@@ -134,14 +149,17 @@ class Commander(Node):
             self.say(f"[error] {' '.join(args)} exited with code {out.returncode}")
 
     def reset_scene(self):
-        """Open the gripper, send the robot home, and put all cubes (and missing scene items) back."""
-        self.say('[scene] Resetting: gripper open, robot home, cubes back to start...')
+        """Open the gripper, send the robot home, and (sim) put all cubes (and missing scene items) back."""
+        self.say('[scene] Resetting: gripper open, robot home' + ('' if self.real else ', cubes back to start') + '...')
         if not self.dry_run:
             try:
-                self.skills.gripper(0.0)
+                self.skills.open_gripper()
                 self.skills.home()
             except SkillError as e:
                 self.say(f'[failed] {e}')
+        if self.real:
+            self.say('[done] Robot home. Put the cubes back on the table by hand.')
+            return
         self.run_tool('spawn_scene', '--reset')
         self.say('[done] Scene reset.')
 
@@ -213,7 +231,7 @@ class Commander(Node):
 
 def repl(node):
     time.sleep(2.0)  # allow object discovery before the first prompt
-    print(f"\nObjects: {', '.join(node.live_objects()) or '(none yet - run spawn_scene)'}")
+    print(f"\nObjects: {', '.join(node.live_objects()) or '(none yet - run spawn_scene, or check the camera)'}")
     print(f"Destinations: {', '.join(node.dests)}")
     print("Type a command (e.g. 'Pick up the red cube and place it in the blue tray.'), or 'exit'.\n")
     while rclpy.ok():
@@ -237,6 +255,7 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help='plan only, do not move the robot')
     parser.add_argument('--safety', action='store_true',
                         help='check the safety camera with the VLM before running each command')
+    parser.add_argument('--real', action='store_true', help='real robot (no Gazebo scene tools)')
     parser.add_argument('--web', action='store_true', help='serve the browser UI')
     parser.add_argument('--port', type=int, default=8080, help='web UI port (default 8080)')
     parser.add_argument('--https', action='store_true',
@@ -251,18 +270,20 @@ def main():
     planner = LLMPlanner(args.url or llm_cfg['url'], args.model or llm_cfg['model'], llm_cfg.get('timeout_s', 120))
 
     rclpy.init()
-    node = Commander(scene, planner, dry_run=args.dry_run, safety=args.safety, camera=args.web)
+    node = Commander(scene, planner, dry_run=args.dry_run, safety=args.safety, camera=args.web, real=args.real)
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     spin_thread = threading.Thread(target=executor.spin, daemon=True)
     spin_thread.start()
     bridge = None
     if node.monitor:
-        bridge = start_bridge(node, scene['camera']['topic'])
+        if not args.real:
+            bridge = start_bridge(node, scene['camera']['topic'])
         if not node.monitor.wait_for_frame():
-            node.say(f"[safety] WARNING: no image on {scene['camera']['topic']} yet. Run "
-                     f"`ros2 run llm_commander spawn_scene` to add the SafetyCamera"
-                     f"{'; until then commands are refused' if args.safety else ''}.")
+            hint = ('is cell_camera running (so101_cell real.launch.py)?' if args.real else
+                    'run `ros2 run llm_commander spawn_scene` to add the SafetyCamera')
+            node.say(f"[safety] WARNING: no image on {scene['camera']['topic']} yet; {hint}"
+                     f"{' Until then commands are refused.' if args.safety else ''}")
     threading.Thread(target=node.worker, daemon=True).start()
     node.say(f'[llm_commander] model={planner.model}'
              f'{" | safety camera ON" if args.safety else ""}{" (dry run)" if args.dry_run else ""}')

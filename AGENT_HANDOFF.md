@@ -1,6 +1,70 @@
-# Agent Handoff – ABB IRB-120 Sim on ROS 2 Jazzy
+# Agent Handoff – SO-101 (sim + real) on ROS 2 Jazzy
 
 Context for resuming this work in a new session. Read `README.md` first for how to set up and run.
+
+**Standing rule (user):** commit only as the configured git identity (Moe Sani). Never use an AI or
+agent name as author or committer, and never add `Co-authored-by` trailers. Commit/push only when asked.
+
+## Phase 6 (2026-10-22): moved from the ABB IRB-120 to the SO-101
+
+The user asked to make the demo work with the Hugging Face SO-101 arm, **both in sim and on the real
+robot**, dropping the ABB cell (cabinet/Box). Hardware: SO-101 follower + leader (leader unused), one USB
+webcam. The user chose an **overhead camera** for finding cubes on the real robot (colour detection,
+calibrated with 4 ArUco markers), the same camera as the VLM safety check.
+
+Everything IFRA/ABB/MoveIt is gone (ros2_ws.repos is empty, `patches/` and `apply_patches.sh`
+deleted). New package `src/so101_cell` (ament_python):
+- `urdf/so101_arm.xacro` (TheRobotStudio `so101_new_calib.urdf`: joint 0 = LeRobot's calibrated mid-range)
+  and `so101.urdf.xacro` (adds ros2_control: gz_ros2_control with `sim:=true`, nothing for real).
+- `sim.launch.py`: Gazebo world `so101_cell`, `arm_controller` (5 joints) + `gripper_controller`
+  (JointTrajectoryControllers), /clock bridge, `sim_object_poses`.
+- `real.launch.py`: robot_state_publisher, `so101_driver`, `cell_camera` (`port:=fake camera:=none`
+  runs without hardware).
+- `kinematics.py`: numpy DLS IK, top-down only. TCP = (0.010, 0, -0.085) in gripper_link (between the jaw
+  tips, tuned so the fixed jaw clears the cube). `solve_down` tries several seeds and the cube's 90°
+  symmetric yaws; `joints_clear` keeps elbow/wrist above 1 cm. Reach at z 0.02–0.07: r ≈ 0.10–0.30.
+- `feetech.py`: STS3215 protocol 0 over pyserial (no LeRobot install needed), LeRobot calibration JSON,
+  `JointMap` (arm: deg = (raw − mid)·360/4095; gripper: linear onto the URDF limits).
+- `driver.py`: both FollowJointTrajectory servers + /joint_states, 50 Hz setpoint streaming, linear
+  interpolation, preemption, goal range check vs. calibration, goal_tolerance 0.12 rad (gravity sag);
+  gripper goals always succeed (it stalls on the cube). Bus errors (incl. unplugged USB) are logged, not fatal.
+- `calibrate.py`: `--setup-motors` (ids one by one) and LeRobot-style calibration (half-turn homing,
+  then record ranges; wrist_roll full turn).
+- `cell_camera.py`: publishes /safety_camera/image and /object_pose/<Cube> (z = table + half). Blobs
+  must be solid (≥0.8 of the hull) and 0.5–2.5 cube faces on the table, so tray walls of the same colour
+  are ignored; parallax-corrected with `camera.position`.
+
+`llm_commander` changes: poses are `geometry_msgs/PoseStamped` on `/object_pose/<Name>` (both backends);
+`robot.py` rewritten on the IK + FollowJointTrajectory; `commander --real` (no gz bridge, Reset = home);
+the camera model and trays are not objects; `spawn_scene`/`spawn_person` use gz-transport Python
+directly (no rclpy, which crashed there with "context is invalid"). Trays are 10 cm inside with a light
+floor (coloured walls only, so a same-coloured cube stays detectable); `place` drops at a free spot
+when a tray already holds a cube. Bob is scaled to 0.25 (figurine).
+
+Verified (2026-10-22, Docker `so101-jazzy` on the user's Mac, container `so101sim`, mounting `src/`):
+- Sim, fresh start via demo.sh's robot section: controllers up in ~10 s, scene spawned.
+- Sim e2e (plans through `Commander.run_step`, no LLM): RedCube→BlueTray, pick GreenCube + place
+  GreenTray, BlueCube→GreenTray (beside the green one), home: all OK, final poses inside the trays.
+- Web UI actions (reset, spawn/remove Bob, camera.jpg, state) in sim.
+- `cell_camera` detector on the Gazebo camera frame (with a pinhole homography): cubes within ~5 mm,
+  also inside a same-coloured tray. Marker page + `--calibrate` on a synthetic image: markers map exact.
+- `so101_calibrate` and `so101_driver` against a byte-level STS3215 emulator on a pty; the commander's
+  skills drive it fine. **Not yet run on the real arm/camera** (robot PC unreachable during this phase).
+- Not tested: the LLM itself in this phase (GenieX only on the robot PC); prompts are unchanged.
+
+Gotchas found in phase 6:
+- Gazebo's `scene/info` service stops answering when called repeatedly while subscribed to pose/info,
+  and a request inside a gz subscription callback deadlocks. `sim_object_poses` instead relies on the
+  order of `/world/<w>/pose/info`: top-level models come first in ascending id, then links (the id drops).
+- With joint trajectories finishing, the controller reports success slightly before /joint_states
+  settles; planning the next straight line from the measured joints tilted it and the jaw landed on
+  the cube. `RobotSkills` waits to settle and plans from the last commanded pose.
+- Opening the gripper fully (1.2 rad) in a tray corner hits the wall; release opens to 0.6 and the
+  release height is 2.5 cm above the floor.
+- `pkill -f <pattern>` inside `docker exec bash -c '...'` matches (and kills) that bash too.
+
+The sections below describe the ABB IRB-120 phases 1–5; their robot-side details (MoveIt, IFRA,
+`/Robmove`, `~/dev_ws`) no longer apply, the commander/safety/web/voice design mostly does.
 
 ## Goal (from user)
 

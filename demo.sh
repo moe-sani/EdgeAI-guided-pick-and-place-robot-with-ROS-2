@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# One-command demo: LLM server + simulation + scene + web UI, opened in Firefox.
+# One-command demo: LLM server + SO-101 (Gazebo or the real arm) + scene + web UI, opened in Firefox.
 # Run on the robot PC:   ~/ros2_ws/demo.sh            (Ctrl+C stops everything it started)
 #
 # Options:
+#   --real         drive the real SO-101 + overhead USB camera instead of the simulation
+#   --serial DEV   servo board port for --real (default /dev/ttyACM0)
+#   --camera N     overhead camera index/path for --real (default from scene.yaml real_camera.device)
 #   --safety       start with the camera safety check ON
-#   --logo         show the ABB logo on the robot (hidden by default)
 #   --lan          let other machines on the network open the web UI (http://<this-PC-IP>:8080)
 #   --https        serve the web UI over HTTPS (needed for the microphone from another machine)
 #   --no-browser   don't open Firefox
@@ -14,16 +16,18 @@ set -uo pipefail
 WS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOGS="$WS/log/demo"
 PORT=8080
-SAFETY="" LOGO="false" HOST="127.0.0.1" HTTPS="" BROWSER=1
+SAFETY="" HOST="127.0.0.1" HTTPS="" BROWSER=1 REAL="" SERIAL="/dev/ttyACM0" CAMERA=""
 while [ $# -gt 0 ]; do
     case "$1" in
+        --real) REAL="--real" ;;
+        --serial) SERIAL="$2"; shift ;;
+        --camera) CAMERA="$2"; shift ;;
         --safety) SAFETY="--safety" ;;
-        --logo) LOGO="true" ;;
         --lan) HOST="0.0.0.0" ;;
         --https) HTTPS="--https" ;;
         --no-browser) BROWSER=0 ;;
         --port) PORT="$2"; shift ;;
-        -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $1 (see --help)"; exit 1 ;;
     esac
     shift
@@ -89,10 +93,14 @@ wait_for() {  # wait_for <seconds> <description> <test command...>
     return 1
 }
 
-sim_ready() { ros2 action list 2>/dev/null | grep -q '^/Robmove$' && grep -q "You can start planning" "$LOGS/sim.log"; }
+robot_ready() {  # both trajectory controllers up (Gazebo's ros2_control, or so101_driver)
+    local actions; actions=$(ros2 action list 2>/dev/null)
+    grep -q '^/arm_controller/follow_joint_trajectory$' <<<"$actions" &&
+        grep -q '^/gripper_controller/follow_joint_trajectory$' <<<"$actions"
+}
 
 echo
-echo "  Robot Arm · LLM Commander demo"
+echo "  SO-101 · LLM Commander demo$([ -n "$REAL" ] && echo ' (real robot)')"
 echo "  ──────────────────────────────"
 
 # 1. LLM server (GenieX) -----------------------------------------------------------------------------
@@ -109,35 +117,48 @@ fi
 curl -s -m 120 http://127.0.0.1:18181/v1/chat/completions -H 'Content-Type: application/json' \
     -d "{\"model\": \"$MODEL\", \"max_tokens\": 1, \"messages\": [{\"role\": \"user\", \"content\": \"hi\"}]}" >/dev/null 2>&1 &
 
-# 2. Simulation -----------------------------------------------------------------------------------------
-say "Simulation (Gazebo + MoveIt)"
-if pgrep -f "gz sim server" >/dev/null && ros2 action list 2>/dev/null | grep -q '^/Robmove$'; then
-    ok "already running"
+# 2. Robot ---------------------------------------------------------------------------------------------
+if [ -n "$REAL" ]; then
+    say "Real SO-101 (servo driver + overhead camera)"
+    if robot_ready; then
+        ok "already running"
+    else
+        [ -e "$SERIAL" ] || fail "no servo board at $SERIAL (plug in the follower arm, or pass --serial /dev/ttyACMx)"
+        start_bg robot ros2 launch so101_cell real.launch.py port:="$SERIAL" ${CAMERA:+camera:="$CAMERA"}
+        wait_for 30 "robot" robot_ready || fail "the arm driver did not start (see $LOGS/robot.log; calibrated?)"
+        ok "started"
+        grep -q "no table calibration" "$LOGS/robot.log" &&
+            warn "camera not calibrated: no cube poses (run: ros2 run so101_cell cell_camera --calibrate)"
+    fi
 else
-    pgrep -f "gz sim server" >/dev/null && fail "Gazebo is running but the robot isn't ready. Close Gazebo and run this again."
-    for attempt in 1 2; do
-        start_bg sim ros2 launch ros2srrc_launch moveit2.launch.py package:=irb120cranfield \
-                 config:=irb120cranfield_2 rviz:=false logo:=$LOGO
-        sim_pg=$LAST_PG
-        if wait_for 150 "simulation" sim_ready; then ok "started (Gazebo window opens on this screen)"; break; fi
-        # Gazebo occasionally hangs while loading the world; one automatic retry fixes it.
-        stop_group "$sim_pg"; forget "$sim_pg"
-        [ $attempt -eq 2 ] && fail "Simulation did not come up (see $LOGS/sim.log)"
-        warn "Gazebo got stuck while starting; retrying once..."
-    done
-    sleep 3  # let the controllers settle
-fi
+    say "Simulation (Gazebo)"
+    if pgrep -f "gz sim server" >/dev/null && robot_ready; then
+        ok "already running"
+    else
+        pgrep -f "gz sim server" >/dev/null && fail "Gazebo is running but the robot isn't ready. Close Gazebo and run this again."
+        for attempt in 1 2; do
+            start_bg robot ros2 launch so101_cell sim.launch.py
+            sim_pg=$LAST_PG
+            if wait_for 90 "simulation" robot_ready; then ok "started (Gazebo window opens on this screen)"; break; fi
+            # Gazebo occasionally hangs while loading the world; one automatic retry fixes it.
+            stop_group "$sim_pg"; forget "$sim_pg"
+            [ $attempt -eq 2 ] && fail "Simulation did not come up (see $LOGS/robot.log)"
+            warn "Gazebo got stuck while starting; retrying once..."
+        done
+        sleep 2  # let the controllers settle
+    fi
 
-# 3. Scene (trays, cubes, safety camera) --------------------------------------------------------------
-say "Scene (trays, cubes, camera)"
-ros2 run llm_commander spawn_scene --reset >"$LOGS/scene.log" 2>&1 && ok "ready" || warn "spawn_scene reported a problem (see $LOGS/scene.log)"
+    # 3. Scene (trays, cubes, safety camera) ----------------------------------------------------------
+    say "Scene (trays, cubes, camera)"
+    ros2 run llm_commander spawn_scene --reset >"$LOGS/scene.log" 2>&1 && ok "ready" || warn "spawn_scene reported a problem (see $LOGS/scene.log)"
+fi
 
 # 4. Web UI (commander) ---------------------------------------------------------------------------------
 say "Web UI"
 if ss -ltn 2>/dev/null | grep -q ":$PORT "; then
     warn "something is already serving port $PORT; using it (start with --port N for a fresh one)"
 else
-    start_bg commander ros2 run llm_commander commander --web --host "$HOST" --port "$PORT" $SAFETY $HTTPS
+    start_bg commander ros2 run llm_commander commander --web --host "$HOST" --port "$PORT" $SAFETY $HTTPS $REAL
     wait_for 30 "web UI" bash -c "ss -ltn | grep -q ':$PORT '" || fail "the web UI did not start (see $LOGS/commander.log)"
     ok "$URL${SAFETY:+  (safety check ON)}"
 fi
@@ -155,11 +176,11 @@ echo "  Demo is running. Press Ctrl+C here to stop everything this script starte
 echo "  Logs: $LOGS"
 echo
 
-# Stay in the foreground; stop if the commander or the simulation dies (e.g. Gazebo window closed).
+# Stay in the foreground; stop if the commander or the robot dies (e.g. Gazebo window closed).
 while sleep 2; do
     for pg in "${STARTED[@]}"; do
         if ! kill -0 "$pg" 2>/dev/null; then
-            warn "${NAME[$pg]} stopped$([ "${NAME[$pg]}" = sim ] && echo ' (Gazebo window closed?)')"
+            warn "${NAME[$pg]} stopped$([ "${NAME[$pg]}" = robot ] && [ -z "$REAL" ] && echo ' (Gazebo window closed?)')"
             cleanup
         fi
     done

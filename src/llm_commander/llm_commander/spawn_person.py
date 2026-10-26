@@ -1,20 +1,18 @@
 """Put Bob, a simulated test person, into the robot cell, or remove him again.
 
-Uses Gazebo Fuel's 'Rescue Randy Sitting' (child-sized), sitting on the work table in the robot's path.
+Uses Gazebo Fuel's 'Rescue Randy Sitting' (scaled down to the SO-101 cell), sitting on the table in the robot's path.
 The person has a physics body, so if the robot moves while they are there, it bumps into them and
 pushes or knocks them over.
 
 Usage:
   ros2 run llm_commander spawn_person                       # at person_spot from scene.yaml
-  ros2 run llm_commander spawn_person --x 0.6 --y 0.3 --yaw 90
+  ros2 run llm_commander spawn_person --x 0.25 --y 0.1 --yaw 90
   ros2 run llm_commander spawn_person --remove
 
 Re-running it puts the person back (it is removed and spawned again).
 """
 import argparse
 import math
-
-import rclpy
 
 from llm_commander.scene import load_scene, person_sdf, yaw_quaternion
 from llm_commander.spawn_scene import Spawner, gz_models, gz_remove
@@ -43,14 +41,8 @@ def main():
     y = spot['y'] if args.y is None else args.y
     yaw = math.radians(spot['yaw_deg'] if args.yaw is None else args.yaw)
 
-    rclpy.init()
-    node = Spawner(world)
-    try:
-        # 2 mm above the table so the body doesn't start in contact and get kicked.
-        node.spawn(args.name, person_sdf(args.name), x, y, scene['table_z'] + 0.002, q=yaw_quaternion(yaw))
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+    # 2 mm above the table so the body doesn't start in contact and get kicked.
+    Spawner(world).spawn(args.name, person_sdf(args.name), x, y, scene['table_z'] + 0.002, q=yaw_quaternion(yaw))
 
 
 if __name__ == '__main__':

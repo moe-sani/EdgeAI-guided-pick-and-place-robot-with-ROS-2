@@ -5,6 +5,7 @@ log/
 # Our own packages live alongside them and are committed.
 src/*
 !src/llm_commander/
+!src/so101_cell/
 __pycache__/
 *.pyc
 .DS_Store

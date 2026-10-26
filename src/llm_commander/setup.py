@@ -16,9 +16,9 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='ubuntu',
-    maintainer_email='ubuntu@example.com',
-    description='Natural-language control of the simulated ABB IRB-120 via a local LLM.',
+    maintainer='Moe Sani',
+    maintainer_email='50625788+moe-sani@users.noreply.github.com',
+    description='Natural-language control of the SO-101 arm (sim and real) via a local LLM.',
     license='Apache-2.0',
     entry_points={
         'console_scripts': [

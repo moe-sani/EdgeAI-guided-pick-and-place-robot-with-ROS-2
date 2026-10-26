@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<!-- Minimal SO-101 cell: ground, light and a work table. The robot base sits at the world origin,
+     on the table top (z = 0); the table surface spans x -0.15..0.45, y -0.35..0.35. -->
+<sdf version="1.8">
+  <world name="so101_cell">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <gui fullscreen="0">
+      <camera name="user_camera">
+        <pose>0.75 0.55 0.55 0 0.45 -2.45</pose>
+      </camera>
+    </gui>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 5 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.3 0.2 -0.9</direction>
+    </light>
+    <light type="point" name="fill">
+      <pose>0.3 0 1.2 0 0 0</pose>
+      <diffuse>0.4 0.4 0.4 1</diffuse>
+      <attenuation><range>5</range><constant>0.6</constant><linear>0.1</linear><quadratic>0.01</quadratic></attenuation>
+    </light>
+
+    <model name="ground">
+      <static>true</static>
+      <link name="link">
+        <collision name="c"><geometry><plane><normal>0 0 1</normal><size>10 10</size></plane></geometry></collision>
+        <visual name="v"><geometry><plane><normal>0 0 1</normal><size>10 10</size></plane></geometry>
+          <material><ambient>0.6 0.6 0.6 1</ambient><diffuse>0.6 0.6 0.6 1</diffuse></material></visual>
+      </link>
+      <pose>0 0 -0.75 0 0 0</pose>
+    </model>
+
+    <model name="table">
+      <static>true</static>
+      <pose>0.15 0 -0.02 0 0 0</pose>
+      <link name="link">
+        <collision name="top"><geometry><box><size>0.6 0.7 0.04</size></box></geometry>
+          <surface><friction><ode><mu>0.8</mu><mu2>0.8</mu2></ode></friction></surface></collision>
+        <visual name="top"><geometry><box><size>0.6 0.7 0.04</size></box></geometry>
+          <material><ambient>0.85 0.85 0.82 1</ambient><diffuse>0.85 0.85 0.82 1</diffuse></material></visual>
+        <visual name="leg"><pose>0 0 -0.365 0 0 0</pose><geometry><box><size>0.5 0.6 0.69</size></box></geometry>
+          <material><ambient>0.35 0.35 0.38 1</ambient><diffuse>0.35 0.35 0.38 1</diffuse></material></visual>
+      </link>
+    </model>
+  </world>
+</sdf>

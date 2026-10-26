@@ -127,8 +127,8 @@
         <button data-action="reset" title="Gripper open, robot home, cubes back to start">↺ Reset scene</button>
         <button data-action="home">⌂ Robot home</button>
         <button data-action="check">👁 Check now</button>
-        <button data-action="spawn_person" class="danger" title="Sits Bob (a test person) on the table in the robot's path (re-click to put him back)">🧍 Spawn Bob</button>
-        <button data-action="remove_person">✕ Remove Bob</button>
+        <button data-action="spawn_person" class="danger sim-only" title="Sits Bob (a test person) on the table in the robot's path (re-click to put him back)">🧍 Spawn Bob</button>
+        <button data-action="remove_person" class="sim-only">✕ Remove Bob</button>
       </div>
     </div>
   </aside>
@@ -139,7 +139,7 @@ let seq = 0, lastVerdictAt = null, boot = null, safetyOn = false, promptDirty = 
 const EXAMPLES = [
   'Pick up the red cube and place it in the blue tray.',
   'Put the green cube in the green tray',
-  'Pick up the blue cube', 'Put it in the box', 'Put all cubes in the box', 'Go home',
+  'Pick up the blue cube', 'Put it in the green tray', 'Put all cubes in the blue tray', 'Go home',
 ];
 
 function addLine(kind, text) {
@@ -179,7 +179,8 @@ async function poll() {
     const st = $('status');
     st.textContent = s.busy ? `robot busy${s.queued ? ` · ${s.queued} queued` : ''}` : 'ready';
     st.className = 'pill' + (s.busy ? ' busy' : '');
-    $('model').textContent = s.model + (s.dry_run ? ' · dry run' : '');
+    $('model').textContent = s.model + (s.dry_run ? ' · dry run' : '') + (s.real ? ' · real robot' : ' · sim');
+    document.querySelectorAll('.sim-only').forEach(b => b.style.display = s.real ? 'none' : '');
     safetyOn = s.safety;
     $('safetybtn').textContent = !s.camera ? 'Safety check unavailable (no camera)'
       : s.safety ? '🛡 Safety check: ON  (click to turn off)' : 'Safety check: OFF  (click to turn on)';

@@ -3,17 +3,20 @@
 <package format="3">
   <name>llm_commander</name>
   <version>0.1.0</version>
-  <description>Natural-language control of the simulated ABB IRB-120 via a local LLM (GenieX, OpenAI-compatible API).</description>
-  <maintainer email="ubuntu@example.com">ubuntu</maintainer>
+  <description>Natural-language control of the SO-101 arm (sim and real) via a local LLM (GenieX, OpenAI-compatible API).</description>
+  <maintainer email="50625788+moe-sani@users.noreply.github.com">Moe Sani</maintainer>
   <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>ros2srrc_data</exec_depend>
-  <exec_depend>objectpose_msgs</exec_depend>
-  <exec_depend>ros_gz_interfaces</exec_depend>
-  <exec_depend>irb120cranfield</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>control_msgs</exec_depend>
+  <exec_depend>trajectory_msgs</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>so101_cell</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
 
   <export>

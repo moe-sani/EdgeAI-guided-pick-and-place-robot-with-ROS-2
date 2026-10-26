@@ -1,15 +1,10 @@
-# Local LLM and VLM controlling a Simulated Robot Arm doing Pick-and-Place 
+# Local LLM and VLM controlling an SO-101 Robot Arm doing Pick-and-Place
 
-A simulated ABB IRB-120 with a Schunk EGP-64 gripper does a cube pick-and-place in
-**Gazebo Harmonic**. The robot is driven by **MoveIt 2** on **ROS 2 Jazzy** (Ubuntu 24.04).
+A [Hugging Face / TheRobotStudio SO-101](https://github.com/TheRobotStudio/SO-ARM100) arm sorts coloured
+cubes into trays on **ROS 2 Jazzy** (Ubuntu 24.04), either in **Gazebo Harmonic** or on the real arm. Both
+use the same ROS interface, so the same commands and the same code drive either one.
 
-This workspace uses the `jazzy` branches of IFRA-Cranfield's
-[irb120_CranfieldRobotics](https://github.com/IFRA-Cranfield/irb120_CranfieldRobotics) and
-[ros2_SimRealRobotControl](https://github.com/IFRA-Cranfield/ros2_SimRealRobotControl).
-It was verified working on 2026-09-29: the red cube moved from (0.60, 0.70) to
-(0.53, 0.13), and the program's place target is (0.525, 0.125).
-
-A **local LLM** can now drive it with natural language: *"Pick up the red cube and place it in the
+A **local LLM** drives it with natural language: *"Pick up the red cube and place it in the
 blue tray."* See [LLM control](#llm-control-local-llm-via-geniex). Optionally, a **safety camera** checked
 by a local vision-language model refuses commands when a person is in the cell. See
 [Safety camera](#safety-camera-vlm).
@@ -17,7 +12,7 @@ by a local vision-language model refuses commands when a person is in the cell. 
 ![The Gazebo robot cell beside the local web UI, showing Bob in the camera view and a refused command](assets/local_vlm_safety.png)
 
 *Running on a Qualcomm Dragonwing IQ9: the simulated arm on the left, with chat, camera images,
-and the VLM's verdict on the right.*
+and the VLM's verdict on the right. (Recorded with the earlier ABB IRB-120 version of this project.)*
 
 [Watch the demo](https://www.youtube.com/shorts/3_KHg4WfuSY) ·
 [Read the blog post](https://moesani.com/blog/when-should-an-industrial-robot-refuse-to-move/) ·
@@ -31,23 +26,38 @@ and the VLM's verdict on the right.*
 use the same local model; robot coordinates come from the scene. This is a check at command start,
 not continuous monitoring. [Editable diagram](assets/architecture.svg).*
 
+The robot side is `so101_cell`, with one launch file for each backend. Both provide the same topics and actions:
+
+| | Simulation (`sim.launch.py`) | Real arm (`real.launch.py`) |
+|---|---|---|
+| `/arm_controller/follow_joint_trajectory`, `/gripper_controller/follow_joint_trajectory` | Gazebo + ros2_control | `so101_driver` (Feetech servo bus) |
+| `/joint_states` | joint_state_broadcaster | `so101_driver` |
+| `/object_pose/<Name>` (PoseStamped, frame `world`) | `sim_object_poses` (Gazebo model poses) | `cell_camera` (overhead USB webcam, colour detection) |
+| `/safety_camera/image` | Gazebo camera (bridged by the commander) | `cell_camera` |
+
+`llm_commander` plans with the LLM and runs the steps. It uses its own top-down IK for the SO-101
+(`so101_cell/kinematics.py`, no MoveIt).
+
 ## Quick start: one-command demo
 
 On the robot PC (in a terminal on its own desktop):
 
 ```bash
-~/ros2_ws/demo.sh
+~/ros2_ws/demo.sh            # simulation
+~/ros2_ws/demo.sh --real     # the real arm + overhead camera (set up first, see "Real robot")
 ```
 
-It starts the LLM server (GenieX), the simulation (Gazebo + MoveIt, no RViz), the scene (trays, cubes,
-safety camera) and the web UI, then opens **http://localhost:8080** in Firefox. It takes about a minute.
+It starts the LLM server (GenieX), the robot (Gazebo, or the servo driver and camera), the scene (trays,
+cubes and safety camera; sim only) and the web UI, then opens **http://localhost:8080** in Firefox.
 **Ctrl+C** in that terminal stops everything it started. Closing the Gazebo window also stops the
 demo. Anything that was already running, like GenieX, is reused and left alone.
 
 | Option | Effect |
 |---|---|
+| `--real` | drive the real SO-101 instead of the simulation |
+| `--serial DEV` | servo board port with `--real` (default `/dev/ttyACM0`) |
+| `--camera N` | overhead camera index or path with `--real` (default `real_camera.device` in scene.yaml) |
 | `--safety` | start with the camera safety check on |
-| `--logo` | show the ABB logo on the robot |
 | `--lan` | let other machines open the web UI at `http://<robot-PC-IP>:8080` |
 | `--https` | HTTPS web UI (needed for the microphone from another machine) |
 | `--no-browser` | don't open Firefox |
@@ -60,111 +70,135 @@ The sections below explain the individual pieces.
 
 | Path | Purpose |
 |---|---|
-| `ros2_ws.repos` | Upstream source repos pinned to the verified commits |
 | `demo.sh` | One-command demo launcher (see Quick start) |
 | `env.sh` | Environment setup. **Always** `source` it before using the workspace. From SSH terminals it also points GUIs at the PC's logged-in desktop (`DISPLAY=:0`) |
 | `AGENT_HANDOFF.md` | Detailed notes and gotchas for continuing the work (human or AI agent) |
-| `src/llm_commander/` | **Our package**: natural-language control via a local LLM, plus the coloured-tray scene |
-| `src/*` (everything else) | Upstream clones (git-ignored; restored via `vcs import`) |
-| `patches/`, `apply_patches.sh` | Our small changes to the upstream clones (`logo:=` and `rviz:=` launch flags); re-applied by the script |
+| `src/so101_cell/` | The SO-101: URDF and meshes, the Gazebo world and controllers, the IK, the real-arm servo driver and calibration, and the overhead camera |
+| `src/llm_commander/` | Natural-language control via a local LLM, the scene (cubes, trays, camera), safety check and web UI |
+| `ros2_ws.repos` | Upstream source repos (none needed now; everything else comes from apt) |
 
 ## Setup from scratch
 
 ```bash
-# 1. System dependencies (MoveIt + xacro are also required)
-sudo apt install ros-jazzy-moveit ros-jazzy-xacro ros-dev-tools \
-  ros-jazzy-ros2-control ros-jazzy-ros2-controllers ros-jazzy-gripper-controllers \
-  ros-jazzy-ros-gz ros-jazzy-gz-ros2-control ros-jazzy-rmw-cyclonedds-cpp
+# 1. System dependencies
+sudo apt install ros-jazzy-xacro ros-dev-tools ros-jazzy-robot-state-publisher \
+  ros-jazzy-ros2-control ros-jazzy-ros2-controllers \
+  ros-jazzy-ros-gz ros-jazzy-gz-ros2-control ros-jazzy-rmw-cyclonedds-cpp \
+  python3-serial python3-opencv python3-numpy python3-yaml
 
-# 2. Sources
+# 2. Build. /usr/bin must come first in PATH so Homebrew's python3 isn't picked up
 cd ~/ros2_ws
-vcs import src < ros2_ws.repos
-./apply_patches.sh        # small upstream tweaks: logo:= and rviz:= launch flags (safe to re-run)
 source /opt/ros/jazzy/setup.bash
-rosdep install -r --from-paths src --ignore-src --rosdistro jazzy -y   # gz-math7 warning is harmless
-
-# 3. Upstream launch files hardcode ~/dev_ws, so point it at this workspace
-ln -sfn ~/ros2_ws ~/dev_ws   # -n: safe to re-run (plain `ln -s` would nest a link inside)
-
-# 4. Build. /usr/bin must come first in PATH so Homebrew's python3 isn't picked up
 export PATH=/usr/bin:$PATH
 colcon build --symlink-install --cmake-args -DPython3_EXECUTABLE=/usr/bin/python3
 ```
 
-## Run the pick-and-place demo
-
-Terminal 1 starts Gazebo, MoveIt and RViz:
+## Simulation
 
 ```bash
 source ~/ros2_ws/env.sh
-ros2 launch ros2srrc_launch moveit2.launch.py package:=irb120cranfield config:=irb120cranfield_2
-# rviz:=false  skips the RViz window (everything else still works)
-# logo:=true   shows the ABB logo on the arm (hidden by default)
-```
-
-Terminal 2 spawns a cube and runs the program. Wait until "You can start planning now!" appears
-and the gripper controllers are active.
-
-```bash
-source ~/ros2_ws/env.sh
-ros2 run ros2srrc_execution SpawnObject.py --package irb120cranfield --sdf RedCube.sdf \
-  --name RedCube --x 0.6 --y 0.7 --z 0.95
-ros2 run ros2srrc_execution ExecuteProgram.py package:=irb120cranfield program:=CubePP_irb120_sim
+ros2 launch so101_cell sim.launch.py            # gui:=false for headless
+ros2 run llm_commander spawn_scene              # trays, cubes, camera (safe to re-run; --reset puts cubes back)
 ```
 
 Useful checks:
 
 ```bash
-ros2 control list_controllers        # expect joint_trajectory_controller + 2x egp64_finger_* active
-ros2 topic echo /RedCube/ObjectPose  # cube position
-ros2 topic echo /Robpose             # end-effector pose
+ros2 control list_controllers                   # joint_state_broadcaster, arm_controller, gripper_controller active
+ros2 topic echo /object_pose/RedCube            # cube pose
 ```
 
-To change the motion, edit
-`src/irb120_CranfieldRobotics/irb120cranfield/programs/CubePP_irb120_sim.yaml`.
-For single moves, you can send `/Move` or `/Robmove` actions directly. See the upstream
-`instructions/Examples.md`.
+The cell: the SO-101 at the origin of a 0.6 × 0.7 m table, three 3 cm cubes (red, green, blue) in front of
+it, a **BlueTray** on its right and a **GreenTray** on its left (10 cm inside), and an overhead
+**SafetyCamera**. Positions and motion settings are in `src/llm_commander/config/scene.yaml`. The arm
+reaches top-down grasps at about 0.10–0.30 m from its base, so keep things in that band.
+
+## Real robot
+
+Hardware: an SO-101 **follower** arm (with its Feetech STS3215 servos and USB servo board) and a USB webcam
+looking down at the table. The leader arm isn't needed for the demo.
+
+**1. Servo ids (new arm only).** Skip this if the arm was already set up with LeRobot. New servos all
+have id 1, so connect one motor at a time when asked:
+
+```bash
+source ~/ros2_ws/env.sh
+ls /dev/ttyACM*                                              # unplug/replug the board to see which one it is
+ros2 run so101_cell so101_calibrate --port /dev/ttyACM0 --setup-motors
+```
+
+**2. Arm calibration.** This is the same procedure and file format as LeRobot, so an arm calibrated with
+LeRobot (`~/.cache/huggingface/lerobot/calibration/robots/so_follower/so101_follower.json`) works as is:
+
+```bash
+ros2 run so101_cell so101_calibrate --port /dev/ttyACM0
+```
+
+When asked, move the arm to the middle of its range (as in the LeRobot SO-101 calibration picture: arm
+upright in an "L", gripper half closed) and press ENTER. Then move **every joint through its whole range** by
+hand and press ENTER. The driver refuses moves outside the recorded ranges, so don't skip joints.
+
+**3. Table and camera.** Place the robot base at the table's origin, facing +x. Put the trays at their
+`trays:` spots in scene.yaml (any shallow box about 10 cm inside, with a light floor). Mount the webcam about 60 cm
+above the table, in front of the robot (`camera.position` in scene.yaml; a rough measurement is enough).
+Then calibrate the camera to the table with four ArUco markers:
+
+```bash
+ros2 run so101_cell cell_camera --print-markers     # writes so101_markers.png: print at 100% on A4
+# cut out the four markers and tape them flat at the `markers:` spots in scene.yaml (marker centres)
+ros2 run so101_cell cell_camera --calibrate         # finds them, saves ~/.config/so101_cell/table.yaml
+```
+
+The tool prints where each marker maps to (expect within a few mm) and saves a snapshot next to the
+calibration file. The markers can come off afterwards. Recalibrate whenever the camera moves.
+
+**4. Run it.**
+
+```bash
+ros2 launch so101_cell real.launch.py port:=/dev/ttyACM0      # driver + camera
+ros2 run llm_commander commander --real --web                 # or just: ~/ros2_ws/demo.sh --real
+```
+
+The arm holds its position when the driver starts and goes limp again (torque off) when it stops, so
+**support it before stopping the driver**. Check the cube poses with `ros2 topic echo /object_pose/RedCube`.
+If a cube isn't found, or the wrong thing is, tune its HSV range in `detection.colors` in scene.yaml for
+your cubes and light. To try everything without hardware: `ros2 launch so101_cell real.launch.py port:=fake camera:=none`.
+
+Differences from the simulation:
+- The camera only sees cubes resting on the table, so a held cube simply disappears from view. The
+  commander remembers what it picked, and a failed grasp shows up as the cube still being where it was.
+- **Reset** only opens the gripper and homes the arm; put the cubes back by hand. There's no Bob, of course.
+- Gripping relies on the gripper servo stalling on the cube (its torque is limited so it doesn't overheat).
 
 ## LLM control (local LLM via GenieX)
 
 The `llm_commander` package turns commands like *"Pick up the red cube and place it in the blue tray"*
 into robot motions.
 
-![The simulated robot carrying out a blue-cube command through the local language interface](assets/llm_pick%20up%20blue%20cube.gif)
-
-*A recorded run of the local language interface and simulated arm.*
-
 It works like this:
 
-1. The node sees which cubes exist from their live `/<Name>/ObjectPose` topics in Gazebo.
+1. The node finds the cubes from their live `/object_pose/<Name>` topics (Gazebo or the camera).
 2. It sends the command, plus the list of objects and destinations, to a local LLM through GenieX's
    OpenAI-compatible server.
 3. The LLM replies with a small JSON plan. The node checks it against the known object and
    destination names; the LLM never supplies coordinates.
-4. Each step (pick, place, pick-and-place or home) runs through `/Robmove` and `/Move`, using the
-   cube's live pose. The gripper rotates to match the cube's yaw.
+4. Each step (pick, place, pick-and-place or home) is solved with the SO-101 IK and sent as joint
+   trajectories: a joint move to 7 cm above the target, then a straight vertical descent. The gripper
+   turns to match the cube's yaw. Placing next to a cube already in a tray uses a free spot in that tray.
 5. The node checks the result from the cube's pose: the cube must lift with the gripper, and must
    end up inside the destination. If a step fails, the remaining steps are skipped and the failure is
    reported.
-
-Scene: RedCube, GreenCube and BlueCube on the table, a **BlueTray** and a **GreenTray** (spawned), the
-grey **Box** that's part of the robot cell, and a **SafetyCamera** in the top corner of the enclosure
-(used only with `--safety`, see below). The positions and motion settings are in
-`src/llm_commander/config/scene.yaml`.
 
 ```bash
 # Terminal 1: the LLM server (listens on 127.0.0.1:18181)
 geniex serve
 
-# Terminal 2: the simulation (same command as above; RViz isn't needed here)
-source ~/ros2_ws/env.sh
-ros2 launch ros2srrc_launch moveit2.launch.py package:=irb120cranfield config:=irb120cranfield_2 rviz:=false
+# Terminal 2: the robot (sim, as above: sim.launch.py + spawn_scene; or real.launch.py)
 
-# Terminal 3: spawn the trays, cubes and camera, then talk to the robot
+# Terminal 3: talk to the robot
 source ~/ros2_ws/env.sh
-ros2 run llm_commander spawn_scene            # safe to re-run
 ros2 run llm_commander commander              # interactive prompt; type 'exit' to quit
-                                              # add --safety to enable the camera check (see below)
+                                              # --real on the real arm; --safety for the camera check
 ```
 
 Example session:
@@ -175,23 +209,22 @@ Example session:
 [step 1/2] pick RedCube (hold)
   done: Holding RedCube.
 [step 2/2] place held object -> BlueTray
-  done: RedCube is now in BlueTray at (0.682, 0.398).
+  done: RedCube is now in BlueTray at (0.088, -0.197).
 [done] All steps completed.
 ```
 
 "Pick up X" on its own **only picks it up**: the robot lifts the cube and holds it in the air. A later
 command such as "put it in the green tray" places it. The robot holds one cube at a time.
 
-The commander works out what's held from the scene (a cube well above the table must be in the
-gripper), so this also works across separate one-shot runs or after restarting the commander.
+In the simulation, the commander works out what's held from the scene (a cube well above the table must
+be in the gripper), so this also works across separate one-shot runs or after restarting the commander.
 
 Other ways to use it:
 
 ```bash
-ros2 run llm_commander spawn_scene --reset                          # put all cubes back at their start positions
-                                                                    # (works while the commander runs; run it between
-                                                                    # commands, not while the robot is moving)
-ros2 run llm_commander commander "put the green cube in the box"    # run one command and exit
+ros2 run llm_commander spawn_scene --reset                          # sim: put all cubes back at their start positions
+                                                                    # (run it between commands, not while the robot moves)
+ros2 run llm_commander commander "put the green cube in the green tray"   # run one command and exit
 ros2 run llm_commander commander --dry-run                          # plan only, robot doesn't move
 ros2 run llm_commander commander --model unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_0   # try another model
 # From any ROS node or terminal (while the commander is running):
@@ -209,10 +242,10 @@ or picking while already holding a cube) are rejected before the robot moves. Re
 for things that don't exist (e.g. "the yellow cube") or aren't robot tasks are politely refused.
 
 **Current limitations:**
-- Every cube is dropped at the destination's centre, so putting several cubes into the same tray will
-  stack or knock them together.
-- In the simulation, a held cube slowly slides out of the gripper (it drops within roughly 15–60 s).
-  "Pick up X" followed by "put it in…" should be done promptly.
+- A tray holds a few cubes side by side; cubes aren't stacked.
+- The arm only grasps top-down, so everything must be within its 0.10–0.30 m reach band.
+- No collision checking: the arm moves between spots 7 cm above the table and doesn't know about anything
+  else (like Bob, see below).
 
 ## Safety camera (VLM)
 
@@ -236,29 +269,31 @@ On `yes`, the command is refused and the robot doesn't move. Anything other than
 camera image, a stale image, server error, unexpected answer) also counts as risky. The check takes
 about 0.7 s. The commander starts the gz → ROS image bridge for `/safety_camera/image` itself.
 
-To try it, sit **Bob**, a test person (Gazebo Fuel's *Rescue Randy Sitting*, child-sized), on the table
-in the robot's path, between the red cube and the blue tray:
+To try it in the simulation, sit **Bob**, a test person (Gazebo Fuel's *Rescue Randy Sitting*, figurine-sized
+for the SO-101's table), on the table in the robot's path. On the real robot the camera is the overhead USB
+webcam: put your hand in the cell.
 
 ```bash
 ros2 run llm_commander commander --safety                 # terminal 3
 ros2 run llm_commander spawn_person                       # terminal 4: Bob appears (re-run to put him back)
 ros2 run llm_commander spawn_person --remove              # ...and goes away again
-ros2 run llm_commander spawn_person --x 0.6 --y 0.3 --yaw 90   # somewhere else
+ros2 run llm_commander spawn_person --x 0.25 --y -0.1 --yaw 90   # somewhere else
 ros2 run llm_commander safety_check --repeat 3            # just ask the VLM, no robot involved
 ros2 run llm_commander safety_check --prompt "Is there a blue tray? reply with yes or no only"   # try a question
 ```
 
 ```text
-> put the red cube in the box
-[command] put the red cube in the box
+> put the red cube in the green tray
+[command] put the red cube in the green tray
 [safety] RISK (VLM answered 'yes', 0.7s). Command refused; the robot will not move.
 ```
 
 To see what the camera sees:
+- **Web UI:** the live camera view is on the right of the page.
 - **Gazebo window (live, nothing extra needed):** open the **⋮** menu at the top right, add
   **Image Display**, then choose `/safety_camera/image` in its topic dropdown.
 - **rqt (live):** `ros2 run rqt_image_view rqt_image_view /safety_camera/image`. This needs the image
-  bridge, which `commander --safety` starts. Otherwise run
+  bridge, which `commander --safety` starts in the simulation (on the real robot `cell_camera` publishes it). Otherwise run
   `ros2 run ros_gz_bridge parameter_bridge "/safety_camera/image@sensor_msgs/msg/Image[gz.msgs.Image"`.
 - **What the VLM actually judged:** the last checked frame is saved to `/tmp/llm_commander_safety.jpg`.
   Over SSH, open it in VS Code with `code /tmp/llm_commander_safety.jpg`; it's rewritten after every
@@ -267,12 +302,9 @@ To see what the camera sees:
 Notes:
 - The check happens once, when a command starts. The robot isn't monitored while it moves.
 - **The person has a physics body**, so you can see the risk. Turn safety off, spawn the person and send
-  *"Pick up the red cube and place it in the blue tray."* The arm runs into them, shoves and turns them
-  (about 8 cm and 35° in testing), and knocks the cube out of the gripper. The command then fails with
-  *"RedCube did not end up inside BlueTray"*. With safety on, the same command is refused.
-  - Physics uses one 14 × 14 × 40 cm box around the torso and head (5 kg). The legs are visual-only,
+  a command; the arm doesn't know about them and runs into them.
+  - Physics uses one 6 × 6 × 17 cm box around the torso and head (0.3 kg). The legs are visual-only,
     so the person can sit over cubes without shoving them.
-  - MoveIt doesn't know about the person, so it plans straight through them.
 - With the question worded only as *"anything risky…"*, Qwen3-VL-4B answered `no` even with a person
   in view. Naming "a person" explicitly fixed that, with no false alarms on the normal scene (including
   while the arm moves near the camera).
@@ -283,10 +315,11 @@ A one-page browser UI built into the commander. It uses only the Python standard
 HTML/JS, so there's nothing to install.
 
 ```bash
-# GenieX and the simulation running as above, then:
+# GenieX and the robot running as above, then:
 source ~/ros2_ws/env.sh
 ros2 run llm_commander commander --web                    # http://localhost:8080
 ros2 run llm_commander commander --web --safety           # same, with the safety check already on
+ros2 run llm_commander commander --web --real             # on the real arm
 ros2 run llm_commander commander --web --host 0.0.0.0     # reachable as http://<robot-PC-IP>:8080 on the LAN
 ```
 
@@ -296,9 +329,9 @@ ros2 run llm_commander commander --web --host 0.0.0.0     # reachable as http://
 - **Right:**
   - the live safety-camera view;
   - the result of the last safety check (CLEAR/RISK), with the exact frame the VLM judged;
-  - the buttons: **Reset scene** (gripper open, robot home, cubes back, and any missing trays,
-    cubes or camera re-spawned, which is handy after restarting the sim), **Robot home**,
-    **Check now**, **Spawn Bob** and **Remove Bob**.
+  - the buttons: **Reset scene** (gripper open, robot home, and in the sim cubes back, and any missing
+    trays, cubes or camera re-spawned, which is handy after restarting the sim), **Robot home**,
+    **Check now**, and in the sim **Spawn Bob** and **Remove Bob**.
 - **Safety check button** (in the safety card, also the `safety ON/OFF` pill at the top right): turns
   the camera check on or off without restarting. It's green when on.
 - **Safety question** (in the safety card): the question asked about each frame. If you clear the box,
@@ -358,15 +391,12 @@ curl -L -o en_GB-alba-medium.onnx $V && curl -L -o en_GB-alba-medium.onnx.json $
   works while a user is logged in on that desktop. To view it remotely, use VNC or GNOME Remote Desktop.
 - **Homebrew Python**: `~/.bashrc` runs `brew shellenv`, which puts Homebrew's `python3` first.
   That breaks colcon (`No module named 'catkin_pkg'`) and Python ROS nodes. `env.sh` fixes it.
-- **Hardcoded `~/dev_ws`**: without the symlink, the gripper controllers silently don't load.
-  `MoveG` and the gripper steps then fail.
-- **Do not** apply the upstream "move_group_interface_improved.h" step. The Jazzy code doesn't
-  need it, and it would break the installed MoveIt headers.
-- The ABB and UR real-robot drivers aren't needed for simulation. Only `abb_robot_msgs`
-  (from `abb_ros2_msgs`) is needed, so that the code compiles.
-- Harmless log noise: "No 3D sensor plugin(s) defined for octomap updates",
-  "/recognize_objects not available", "Publisher already registered", and segfaults
-  (exit -11) on shutdown.
+- **Servo port permissions**: if `so101_driver` can't open `/dev/ttyACM0`, add yourself to the `dialout`
+  group (`sudo usermod -aG dialout $USER`, then log in again).
+- **Arm sags or a move ends "joint error … after the trajectory"**: the servos hold position against
+  gravity with a small error. The driver allows 0.12 rad (`goal_tolerance` parameter); a bigger error
+  usually means the arm hit something or a joint is outside the calibrated range (recalibrate).
+- Harmless log noise from Gazebo on shutdown (segfaults, exit -11).
 
 ## License
 

@@ -1,55 +1,39 @@
-"""Spawn the trays, cubes and safety camera defined in scene.yaml into the running Gazebo world.
+"""Spawn the trays, cubes and safety camera defined in scene.yaml into the running Gazebo world (sim only).
 
 Usage:  ros2 run llm_commander spawn_scene [--config path/to/scene.yaml] [--only trays|cubes|camera] [--reset]
 
 --reset moves cubes that already exist back to their start positions (and spawns anything missing).
 """
 import argparse
-import os
 import shutil
 import subprocess
-from pathlib import Path
+import time
 
-import rclpy
-from ament_index_python.packages import get_package_share_directory
-from rclpy.node import Node
-from ros_gz_interfaces.srv import SpawnEntity
-
-from llm_commander.scene import camera_sdf, cube_half_size, load_scene, look_at_quaternion, tray_sdf
+from llm_commander.scene import camera_sdf, cube_half_size, cube_sdf, load_scene, look_at_quaternion, tray_sdf
 
 
-class Spawner(Node):
+class Spawner:
+    """Creates models through the world's gz-transport create service (no ROS bridge needed)."""
+
     def __init__(self, world):
-        super().__init__('llm_scene_spawner')
-        self.cli = self.create_client(SpawnEntity, f'/world/{world}/create')
-        while not self.cli.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info(f'Waiting for /world/{world}/create (is the simulation running?) ...')
+        from gz.transport13 import Node as GzNode  # only in simulation installs
+        self.gz, self.service = GzNode(), f'/world/{world}/create'
+        self.log = print
+        while self.service not in self.gz.service_list():
+            self.log(f'Waiting for {self.service} (is the simulation running?) ...')
+            time.sleep(1.0)
 
     def spawn(self, name, sdf, x, y, z, q=(0.0, 0.0, 0.0, 1.0)):
-        req = SpawnEntity.Request()
-        req.entity_factory.name = name
-        req.entity_factory.allow_renaming = False
-        req.entity_factory.relative_to = 'world'
-        req.entity_factory.sdf = sdf
-        req.entity_factory.pose.position.x = float(x)
-        req.entity_factory.pose.position.y = float(y)
-        req.entity_factory.pose.position.z = float(z)
-        o = req.entity_factory.pose.orientation
+        from gz.msgs10.boolean_pb2 import Boolean
+        from gz.msgs10.entity_factory_pb2 import EntityFactory
+        req = EntityFactory(sdf=sdf, name=name, allow_renaming=False, relative_to='world')
+        req.pose.position.x, req.pose.position.y, req.pose.position.z = float(x), float(y), float(z)
+        o = req.pose.orientation
         o.x, o.y, o.z, o.w = (float(v) for v in q)
-        fut = self.cli.call_async(req)
-        rclpy.spin_until_future_complete(self, fut, timeout_sec=10.0)
-        res = fut.result()
-        ok = res is not None and res.success
-        self.get_logger().info(f"{'Spawned' if ok else 'FAILED to spawn'} {name} at ({x:.3f}, {y:.3f})")
+        ok, rep = self.gz.request(self.service, req, EntityFactory, Boolean, 10000)
+        ok = ok and rep.data
+        self.log(f"{'Spawned' if ok else 'FAILED to spawn'} {name} at ({x:.3f}, {y:.3f})")
         return ok
-
-
-def cube_sdf(name):
-    share = get_package_share_directory('irb120cranfield')
-    with open(os.path.join(share, 'sdf', f'{name}.sdf')) as f:
-        xml = f.read()
-    mesh_uri = Path(os.path.join(share, 'meshes', 'objects', f'{name}.dae')).as_uri()
-    return xml.replace('$(name)', name).replace('$(mesh_uri)', mesh_uri)
 
 
 def gz_bin():
@@ -86,39 +70,34 @@ def main():
     args, _ = parser.parse_known_args()
 
     scene = load_scene(args.config)
-    rclpy.init()
     node = Spawner(scene['world'])
-    log = node.get_logger().info
+    log = node.log
     existing = gz_models()
-    try:
-        if args.only in (None, 'trays'):
-            for t in scene['trays']:
-                if t['name'] in existing:
-                    log(f"{t['name']} already present")
-                    continue
-                node.spawn(t['name'], tray_sdf(t['name'], t['rgb'], scene['tray_size']),
-                           t['x'], t['y'], scene['table_z'])
-        if args.only in (None, 'cubes'):
-            for c in scene['cubes']:
-                # Start 1 cm above the table so the cube settles flat.
-                z = scene['table_z'] + cube_half_size() + 0.01
-                if c['name'] in existing:
-                    if args.reset and gz_set_pose(scene['world'], c['name'], c['x'], c['y'], z):
-                        log(f"Reset {c['name']} to ({c['x']:.3f}, {c['y']:.3f})")
-                    else:
-                        log(f"{c['name']} already present" + ('' if args.reset else ' (use --reset to move it back)'))
-                    continue
-                node.spawn(c['name'], cube_sdf(c['name']), c['x'], c['y'], z)
-        if args.only in (None, 'camera') and 'camera' in scene:
-            cam = scene['camera']
-            if cam['name'] in existing:
-                log(f"{cam['name']} already present")
-            else:
-                node.spawn(cam['name'], camera_sdf(cam), *cam['position'],
-                           q=look_at_quaternion(cam['position'], cam['look_at']))
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+    if args.only in (None, 'trays'):
+        for t in scene['trays']:
+            if t['name'] in existing:
+                log(f"{t['name']} already present")
+                continue
+            node.spawn(t['name'], tray_sdf(t['name'], t['rgb'], scene['tray_size']),
+                       t['x'], t['y'], scene['table_z'])
+    if args.only in (None, 'cubes'):
+        for c in scene['cubes']:
+            # Start 2 mm above the table so the cube settles flat.
+            z = scene['table_z'] + cube_half_size() + 0.002
+            if c['name'] in existing:
+                if args.reset and gz_set_pose(scene['world'], c['name'], c['x'], c['y'], z):
+                    log(f"Reset {c['name']} to ({c['x']:.3f}, {c['y']:.3f})")
+                else:
+                    log(f"{c['name']} already present" + ('' if args.reset else ' (use --reset to move it back)'))
+                continue
+            node.spawn(c['name'], cube_sdf(c['name'], c['rgb']), c['x'], c['y'], z)
+    if args.only in (None, 'camera') and 'camera' in scene:
+        cam = scene['camera']
+        if cam['name'] in existing:
+            log(f"{cam['name']} already present")
+        else:
+            node.spawn(cam['name'], camera_sdf(cam), *cam['position'],
+                       q=look_at_quaternion(cam['position'], cam['look_at']))
 
 
 if __name__ == '__main__':

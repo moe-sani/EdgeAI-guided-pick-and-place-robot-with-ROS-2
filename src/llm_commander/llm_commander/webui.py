@@ -44,6 +44,14 @@ def _actions(node):
         else:
             node.check_safety()
 
+    def sim_only(f):
+        def g():
+            if node.real:
+                node.say('[error] Bob only exists in the simulation; on the real robot, step into the camera view.')
+            else:
+                f()
+        return g
+
     def home():
         node.say('[scene] Robot home...')
         if not node.dry_run:
@@ -53,8 +61,8 @@ def _actions(node):
     return {
         'reset': (True, node.reset_scene),
         'home': (True, home),
-        'spawn_person': (False, lambda: node.run_tool('spawn_person')),  # Bob
-        'remove_person': (False, lambda: node.run_tool('spawn_person', '--remove')),
+        'spawn_person': (False, sim_only(lambda: node.run_tool('spawn_person'))),  # Bob
+        'remove_person': (False, sim_only(lambda: node.run_tool('spawn_person', '--remove'))),
         'safety_on': (False, safety(True)),
         'safety_off': (False, safety(False)),
         'check': (False, check_now),
@@ -98,7 +106,7 @@ def _handler(node):
                     'default_safety_prompt': node.monitor.default_prompt if node.monitor else None,
                     'verdict': node.last_verdict and dict(  # age computed here: browser clocks may differ
                         node.last_verdict, age=round(time.time() - node.last_verdict['at'])),
-                    'objects': node.live_objects(), 'destinations': list(node.dests),
+                    'objects': node.live_objects(), 'destinations': list(node.dests), 'real': node.real,
                 })
             if url.path == '/api/camera.jpg':
                 jpg, _ = node.monitor.latest_jpeg(width=640) if node.monitor else (None, None)

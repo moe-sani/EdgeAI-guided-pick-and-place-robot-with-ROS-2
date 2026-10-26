@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<!-- SO-101 follower arm bolted to the table. The world origin is on the table top under the robot base.
+     sim:=true adds ros2_control for Gazebo (gz_ros2_control); the real arm is driven by so101_cell's driver. -->
+<robot name="so101" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="sim" default="true"/>
+
+  <link name="world"/>
+  <joint name="world_to_base" type="fixed">
+    <parent link="world"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:include filename="$(find so101_cell)/urdf/so101_arm.xacro"/>
+
+  <xacro:if value="$(arg sim)">
+    <ros2_control name="so101_gz" type="system">
+      <hardware>
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      </hardware>
+      <xacro:macro name="sim_joint" params="name initial">
+        <joint name="${name}">
+          <command_interface name="position"/>
+          <state_interface name="position"><param name="initial_value">${initial}</param></state_interface>
+          <state_interface name="velocity"/>
+        </joint>
+      </xacro:macro>
+      <!-- Starts in the home pose (keep in sync with motion.home_joints in llm_commander/config/scene.yaml). -->
+      <xacro:sim_joint name="shoulder_pan" initial="0.0"/>
+      <xacro:sim_joint name="shoulder_lift" initial="-1.4"/>
+      <xacro:sim_joint name="elbow_flex" initial="1.4"/>
+      <xacro:sim_joint name="wrist_flex" initial="0.9"/>
+      <xacro:sim_joint name="wrist_roll" initial="0.0"/>
+      <xacro:sim_joint name="gripper" initial="0.0"/>
+    </ros2_control>
+
+    <gazebo>
+      <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+        <parameters>$(find so101_cell)/config/controllers.yaml</parameters>
+      </plugin>
+    </gazebo>
+
+    <!-- Grippy jaws so a cube doesn't slide out while it's carried. -->
+    <xacro:macro name="grippy" params="link">
+      <gazebo reference="${link}">
+        <mu1>2.0</mu1>
+        <mu2>2.0</mu2>
+      </gazebo>
+    </xacro:macro>
+    <xacro:grippy link="gripper_link"/>
+    <xacro:grippy link="moving_jaw_so101_v1_link"/>
+  </xacro:if>
+</robot>

@@ -1,34 +1,38 @@
-# Scene + motion settings shared by `spawn_scene` and `commander`.
-# All coordinates are in the Gazebo/MoveIt "world" frame, in metres.
-# Robot base is at (0.275, 0.525, 0.8605); the table top is at z ~= 0.866.
+# Scene + motion settings shared by `spawn_scene`, `commander` and (on the real robot) so101_cell's camera.
+# All coordinates are in the "world" frame, in metres: origin on the table top under the SO-101 base,
+# x forward (away from the robot), y to the robot's left, z up. The robot reaches top-down grasps at
+# about 0.10-0.30 m from its base; keep cubes and trays in that band.
 
-world: ros2srrc_GzWorld
-table_z: 0.866
+world: so101_cell     # Gazebo world name (simulation only)
+table_z: 0.0
 
-# Pickable objects (SDFs/meshes come from the irb120cranfield package).
+# Pickable 3 cm cubes. On the real robot their start spots only matter for `spawn_scene` in sim; the
+# camera finds the real ones by colour (see `detection`).
 cubes:
-  - {name: RedCube,   x: 0.60, y: 0.70}
-  - {name: GreenCube, x: 0.48, y: 0.80}
-  - {name: BlueCube,  x: 0.36, y: 0.86}
+  - {name: RedCube,   rgb: [0.85, 0.10, 0.10], x: 0.22, y: 0.00}
+  - {name: GreenCube, rgb: [0.10, 0.70, 0.20], x: 0.20, y: 0.09}
+  - {name: BlueCube,  rgb: [0.10, 0.30, 0.90], x: 0.20, y: -0.09}
 
-# Coloured trays spawned by spawn_scene (static, generated SDF).
-tray_size: {inner: 0.14, wall_height: 0.02, wall_thickness: 0.005, floor_thickness: 0.004}
+# Trays with coloured walls (spawned in sim; on the real table use any shallow box of about this size at
+# these spots, with a light grey/white floor so the camera still sees a cube of the same colour inside).
+tray_size: {inner: 0.10, wall_height: 0.015, wall_thickness: 0.004, floor_thickness: 0.003}
 trays:
-  - {name: BlueTray,  rgb: [0.10, 0.30, 0.90], x: 0.68, y: 0.40}
-  - {name: GreenTray, rgb: [0.10, 0.70, 0.20], x: 0.35, y: 0.20}
+  - {name: BlueTray,  rgb: [0.10, 0.30, 0.90], x: 0.09, y: -0.20}
+  - {name: GreenTray, rgb: [0.10, 0.70, 0.20], x: 0.09, y: 0.20}
 
-# Destinations that are part of the robot cell itself (not spawned).
-fixed_destinations:
-  - {name: Box, x: 0.526, y: 0.126, half_x: 0.05, half_y: 0.077, place_z: 0.925}  # grey 'ergobox'
+# Destinations that are not trays (fixed spots on the table); none in this cell.
+fixed_destinations: []
 
 motion:
-  approach_z: 1.00          # end-effector height for travelling between spots
-  grasp_z_offset: -0.008    # end-effector z relative to the cube centre when grasping
-  tray_release_clearance: 0.02  # drop height above the tray floor
-  gripper_close: 55.0       # MoveG value that grips a 3 cm cube
-  travel_speed: 1.0
-  fine_speed: 0.2           # speed for the final descent/ascent (LIN)
-  home_joints_deg: [0.0, 0.0, 0.0, 0.0, 90.0, 0.0]
+  approach_z: 0.07          # grasp-point height for travelling between spots (the arm can't reach much higher)
+  grasp_z: 0.022            # grasp-point height when gripping a cube on the table (jaw tips just above it)
+  tray_release_clearance: 0.025  # drop height of the cube's bottom above the tray floor (jaw tips stay above the walls)
+  gripper_open: 1.2         # gripper joint (rad) when open; 3 cm cubes need > ~0.6
+  gripper_release: 0.6      # opening to let go in a tray: wide enough for the cube, keeps the jaw off the walls
+  gripper_close: 0.0        # commanded when gripping; the jaw stalls on the cube (~0.19 rad for 3 cm)
+  travel_time: 2.5          # s for a joint move between spots
+  fine_speed: 0.05          # m/s for the straight descents/ascents
+  home_joints: [0.0, -1.4, 1.4, 0.9, 0.0]   # arm joints (rad); keep in sync with so101.urdf.xacro (sim start)
 
 llm:
   url: http://127.0.0.1:18181/v1/chat/completions
@@ -37,20 +41,42 @@ llm:
   model: ai-hub-models/Qwen3-VL-4B-Instruct
   timeout_s: 120
 
-# Static camera inside the enclosure (top front corner) looking down at the whole work table.
+# Overhead camera looking down at the work table, a bit in front of the robot. In sim it is spawned by
+# spawn_scene; on the real robot, mount the USB webcam about here (position is used to correct the
+# parallax of the cube tops, so measure it roughly).
 camera:
   name: SafetyCamera
   topic: /safety_camera/image
-  position: [0.70, 1.02, 1.65]
-  look_at: [0.42, 0.45, 0.87]
-  hfov: 1.4
+  position: [0.42, 0.0, 0.62]
+  look_at: [0.15, 0.0, 0.0]
+  hfov: 1.2
   width: 800
   height: 600
   rate: 5
 
-# Where `spawn_person` sits the test person (torso position): on the table in the robot's path between
-# the red cube and the blue tray (the only gap there that clears both), facing the safety camera.
-person_spot: {x: 0.66, y: 0.58, yaw_deg: -165}
+# Real robot only.
+real_camera:
+  device: 0                 # /dev/video0
+# ArUco markers (4x4_50) taped on the table for the camera calibration (`cell_camera --calibrate`).
+# Centre of each printed marker, world x/y; they only need to be on the table and visible.
+markers:
+  - {id: 0, x: 0.35, y: 0.25}
+  - {id: 1, x: 0.35, y: -0.25}
+  - {id: 2, x: 0.05, y: -0.28}
+  - {id: 3, x: 0.05, y: 0.28}
+# Cube detection by colour: OpenCV HSV ranges (H 0-179), one or more [low, high] per cube. Tune for your
+# cubes and light; red wraps around H = 0, hence two ranges.
+detection:
+  cube_size: 0.03
+  min_area_px: 150
+  colors:
+    RedCube:   [[[0, 120, 70], [8, 255, 255]], [[170, 120, 70], [179, 255, 255]]]
+    GreenCube: [[[40, 80, 50], [85, 255, 255]]]
+    BlueCube:  [[[95, 120, 50], [130, 255, 255]]]
+
+# Where `spawn_person` sits the test person (sim): on the table in front of the robot, next to the red
+# cube, facing the camera.
+person_spot: {x: 0.30, y: 0.05, yaw_deg: 180}
 
 # Camera + VLM safety check, run once before each command (enabled with `commander --safety`).
 safety:
