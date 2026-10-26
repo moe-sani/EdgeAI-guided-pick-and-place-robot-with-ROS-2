@@ -9,10 +9,15 @@ blue tray."* See [LLM control](#llm-control-local-llm-via-geniex). Optionally, a
 by a local vision-language model refuses commands when a person is in the cell. See
 [Safety camera](#safety-camera-vlm).
 
+![The web UI with the simulated SO-101 after sorting the cubes into the trays from three typed commands](assets/SO101-robot-arm.png)
+
+*Running on a Qualcomm Dragonwing IQ9: commands and the robot's progress on the left, with the live
+safety-camera view of the simulated SO-101 and the scene controls on the right.*
+
 ![The Gazebo robot cell beside the local web UI, showing Bob in the camera view and a refused command](assets/local_vlm_safety.png)
 
-*Running on a Qualcomm Dragonwing IQ9: the simulated arm on the left, with chat, camera images,
-and the VLM's verdict on the right. (Recorded with the earlier ABB IRB-120 version of this project.)*
+*The safety check refusing a command because Bob is in the cell. (Recorded with the earlier ABB
+IRB-120 version of this project.)*
 
 [Watch the demo](https://www.youtube.com/shorts/3_KHg4WfuSY) ·
 [Read the blog post](https://moesani.com/blog/when-should-an-industrial-robot-refuse-to-move/) ·
