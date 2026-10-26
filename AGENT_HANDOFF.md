@@ -50,7 +50,8 @@ Verified (2026-10-22, Docker `so101-jazzy` on the user's Mac, container `so101si
   also inside a same-coloured tray. Marker page + `--calibrate` on a synthetic image: markers map exact.
 - `so101_calibrate` and `so101_driver` against a byte-level STS3215 emulator on a pty; the commander's
   skills drive it fine. **Not yet run on the real arm/camera** (robot PC unreachable during this phase).
-- Not tested: the LLM itself in this phase (GenieX only on the robot PC); prompts are unchanged.
+- 2026-10-26 on the IQ9 with GenieX (Qwen3-VL-4B): `demo.sh` sim, single, two-cube and pick-then-"put it"
+  commands, safety refusal with Bob and clear without; `plan_matrix.py` 16/16 (three runs).
 
 Gotchas found in phase 6:
 - Gazebo's `scene/info` service stops answering when called repeatedly while subscribed to pose/info,
@@ -61,6 +62,11 @@ Gotchas found in phase 6:
   the cube. `RobotSkills` waits to settle and plans from the last commanded pose.
 - Opening the gripper fully (1.2 rad) in a tray corner hits the wall; release opens to 0.6 and the
   release height is 2.5 cm above the floor.
+- The SO-101 meshes as collisions (~20-50k triangles each) ran Gazebo at 0.12x real time on the IQ9
+  (everything ~8x slower). Collisions now use 4 mm-clustered convex hulls (`meshes/collision/`); the
+  jaws keep exact meshes. RTF 1.0, a two-cube command takes ~50 s.
+- "The robot can hold only one object at a time" in the planner prompt made Qwen3-VL-4B refuse
+  "put the green and blue cubes in the green tray"; the rule now says one pick_and_place per object.
 - `pkill -f <pattern>` inside `docker exec bash -c '...'` matches (and kills) that bash too.
 
 The sections below describe the ABB IRB-120 phases 1–5; their robot-side details (MoveIt, IFRA,
