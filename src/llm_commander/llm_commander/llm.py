@@ -4,6 +4,8 @@ import re
 import urllib.error
 import urllib.request
 
+# Don't tell the model the robot holds one object at a time: Qwen3-VL-4B then refuses multi-object
+# requests ("put the green and blue cubes in the green tray"). Re-run tools/plan_matrix.py after changes.
 SYSTEM_PROMPT = """You control a robot arm in a simulation. Convert the user's request into a JSON plan.
 
 Objects the robot can pick: {objects}
@@ -26,7 +28,7 @@ Rules:
 - "place" only works while holding something; "it" usually means the held object.
 - If the user says "it" (or similar) while holding nothing and names no object, return an empty plan
   and ask which object they mean. Never use "home" unless the user asks to go home / reset / rest.
-- The robot can hold only one object at a time.
+- Several objects: one pick_and_place per object, in the order the user named them.
 - If the request mentions something that does not exist or is not a robot task, return an empty plan and explain in "reply".
 - "all cubes" means every object listed above."""
 

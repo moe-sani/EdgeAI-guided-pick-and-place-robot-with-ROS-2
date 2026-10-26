@@ -22,6 +22,8 @@ CASES = [
     (None, 'Pick up the red cube and place it in the blue tray.', ['pick RedCube', 'place BlueTray']),
     (None, 'put the green one in the green tray, then move the blue cube to the blue tray',
      ['pick GreenCube', 'place GreenTray', 'pick BlueCube', 'place BlueTray']),
+    (None, 'Put the green and blue cubes in the green tray.', ['pick GreenCube', 'place GreenTray',
+                                                              'pick BlueCube', 'place GreenTray']),
     (None, 'Put all cubes in the green tray', 'all-to-green'),
     (None, 'pick up the yellow cube', None),
     (None, "what's the weather like?", None),
